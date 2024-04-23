@@ -1,10 +1,8 @@
 from flask import Flask, jsonify, request
 import mysql.connector
-import time
-import psycopg2
-from datetime import datetime, timedelta,date
-import json
+from datetime import datetime
 from decimal import Decimal
+from collections import defaultdict
 
 app = Flask(__name__)
 
@@ -17,7 +15,1217 @@ def check_authentication(token):
     valid_token = "VKOnNhH2SebMU6S"
     return token == valid_token
 
+@app.route('/maxpeakjmp', methods = ['GET'])
+def maxpeakjmp():
+    token = request.headers.get('Authorization')
+    print(token)
 
+    if token and check_authentication(token):
+        try:
+            bmsdb =  mysql.connector.connect(
+            host=bmshost,
+            user="emsrouser",
+            password="emsrouser@151",
+            database='bmsmgmtprodv13',
+            port=3306
+            )
+            
+            awsdb = mysql.connector.connect(
+                host=awshost,
+                user="emsroot",
+                password="22@teneT",
+                database='EMS',
+                port=3307
+                )
+    
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+        except Exception as ex:
+            print(ex)
+            return {"Error":"mysql connector"}
+
+        bmscur.execute('select totalApparentPower2,date(polledTime) from bmsmgmt_olap_prod_v13.hvacSchneider7230Polling WHERE date(polledTime) = CURDATE()')
+
+        res = bmscur.fetchall()
+
+        max_jump = []
+
+        for i in range(1,len(res)):
+            if res[i][0] != None and res[i-1][0] != None:
+                max_jump.append(abs(res[i][0]-res[i-1][0]))
+
+        polledDate = res[0][1]
+
+        maxJump = round(max(max_jump),2)
+
+        sql = "INSERT INTO EMS.PeakMaxJump(peakJump,polledDate) VALUES(%s,%s)"
+        val = (maxJump,polledDate)
+        try:
+            awscur.execute(sql,val)
+            awsdb.commit()
+            print(val)
+            print("Max Peak Jump inserted")
+        except mysql.connector.IntegrityError:
+            sql = "UPDATE EMS.PeakMaxJump SET peakJump = %s WHERE polledDate = %s"
+            awscur.execute(sql,val)
+            awsdb.commit()
+            print(val)
+            print("Max Peak Jump updated")
+
+        data = {"message":"Max Peak Jump"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+@app.route('/ablktf', methods = ['GET'])
+def ablktf():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            bmsdb = mysql.connector.connect(
+                host=bmshost,
+                user="emsrouser",
+                password="emsrouser@151",
+                database='bmsmgmtprodv13',
+                port=3306
+            )
+            awsdb = mysql.connector.connect(
+                    host=awshost,
+                    user="emsroot",
+                    password="22@teneT",
+                    database='EMS',
+                    port=3307
+                ) 
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+        except:
+            return {"error":"mysql connection"}
+        
+        atf1140 = {}
+        atf1149 = {}
+        atf1150 = {}
+
+        ablktf = defaultdict(float)
+
+
+        def Ablktf(polledTime,Energy,id):
+            polledTime = str(polledTime)[0:14]+"00:00"
+            
+            if id == 1140:
+                if polledTime in atf1140.keys():
+                    atf1140[polledTime].append(Energy)
+                else:
+                    atf1140[polledTime] = [Energy]
+        
+            
+            if id == 1149:
+                if polledTime in atf1149.keys():
+                    atf1149[polledTime].append(Energy)
+                else:
+                    atf1149[polledTime] = [Energy]
+        
+            if id == 1150:
+                if polledTime in atf1150.keys():
+                    atf1150[polledTime].append(Energy)
+                else:
+                    atf1150[polledTime] = [Energy]
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1140 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Ablktf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+            
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1149 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Ablktf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1150 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Ablktf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+
+        for i in atf1140.keys():
+            ablktf[i] += sum(atf1140[i])
+        
+        for i in atf1149.keys():
+            ablktf[i] += sum(atf1149[i])
+        
+        for i in atf1150.keys():
+            ablktf[i] += sum(atf1150[i])
+        
+        for i in ablktf.keys():
+            val = (ablktf[i],i)
+            sql = "INSERT INTO EMS.OthersConsumption(ablocktf,polledTime) VALUES(%s,%s)"
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("A-block terrace inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.OthersConsumption SET ablocktf = %s where polledTime = %s"
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("A-block terrace updated") 
+        
+        data = {"message":"A-block terrace"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+
+@app.route('/bblktf', methods = ['GET'])
+def bblktf():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            bmsdb = mysql.connector.connect(
+                host=bmshost,
+                user="emsrouser",
+                password="emsrouser@151",
+                database='bmsmgmtprodv13',
+                port=3306
+            )
+            awsdb = mysql.connector.connect(
+                    host=awshost,
+                    user="emsroot",
+                    password="22@teneT",
+                    database='EMS',
+                    port=3307
+                ) 
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+        except:
+            return {"error":"mysql connection"}
+        
+        btf1154 = {}
+        btf1155 = {}
+        btf1156 = {}
+
+        bblktf = defaultdict(float)
+
+
+        def  Bblktf(polledTime,Energy,id):
+            polledTime = str(polledTime)[0:14]+"00:00"
+            
+            if id == 1154:
+                if polledTime in btf1154.keys():
+                    btf1154[polledTime].append(Energy)
+                else:
+                    btf1154[polledTime] = [Energy]
+        
+            
+            if id == 1155:
+                if polledTime in btf1155.keys():
+                    btf1155[polledTime].append(Energy)
+                else:
+                    btf1155[polledTime] = [Energy]
+        
+            if id == 1156:
+                if polledTime in btf1156.keys():
+                    btf1156[polledTime].append(Energy)
+                else:
+                    btf1156[polledTime] = [Energy]
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1154 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Bblktf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+            
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1155 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Bblktf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1156 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Bblktf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+
+        for i in btf1154.keys():
+            bblktf[i] += sum(btf1154[i])
+        
+        for i in btf1155.keys():
+            bblktf[i] += sum(btf1155[i])
+        
+        for i in btf1156.keys():
+            bblktf[i] += sum(btf1156[i])
+        
+        for i in bblktf.keys():
+            val = (bblktf[i],i)
+            sql = "INSERT INTO EMS.OthersConsumption(bblocktf,polledTime) VALUES(%s,%s)"
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("B-block terrace inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.OthersConsumption SET bblocktf = %s where polledTime = %s"
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("B-block terrace updated") 
+        
+        data = {"message":"B-block terrace"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+@app.route('/cblktf', methods = ['GET'])
+def cblktf():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            bmsdb = mysql.connector.connect(
+                host=bmshost,
+                user="emsrouser",
+                password="emsrouser@151",
+                database='bmsmgmtprodv13',
+                port=3306
+            )
+            awsdb = mysql.connector.connect(
+                    host=awshost,
+                    user="emsroot",
+                    password="22@teneT",
+                    database='EMS',
+                    port=3307
+                ) 
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+        except:
+            return {"error":"mysql connection"}
+        
+        ctf1217 = {}
+        ctf1218 = {}
+
+        cblktf = defaultdict(float)
+
+
+        def  Cblktf(polledTime,Energy,id):
+            polledTime = str(polledTime)[0:14]+"00:00"
+            
+            if id == 1217:
+                if polledTime in ctf1217.keys():
+                    ctf1217[polledTime].append(Energy)
+                else:
+                    ctf1217[polledTime] = [Energy]
+        
+            
+            if id == 1218:
+                if polledTime in ctf1218.keys():
+                    ctf1218[polledTime].append(Energy)
+                else:
+                    ctf1218[polledTime] = [Energy]
+        
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1218 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Cblktf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+            
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1217 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Cblktf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        
+        for i in ctf1218.keys():
+            cblktf[i] += sum(ctf1218[i])
+        
+        for i in ctf1217.keys():
+            cblktf[i] += sum(ctf1217[i])
+        
+        for i in cblktf.keys():
+            val = (cblktf[i],i)
+            sql = "INSERT INTO EMS.OthersConsumption(cblocktf,polledTime) VALUES(%s,%s)"
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("C-block terrace inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.OthersConsumption SET cblocktf = %s where polledTime = %s"
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("C block terrace updated") 
+        
+        data = {"message":"C-block terrace"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+@app.route('/dblk3f', methods = ['GET'])
+def dblk3f():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            bmsdb = mysql.connector.connect(
+                host=bmshost,
+                user="emsrouser",
+                password="emsrouser@151",
+                database='bmsmgmtprodv13',
+                port=3306
+            )
+            awsdb = mysql.connector.connect(
+                    host=awshost,
+                    user="emsroot",
+                    password="22@teneT",
+                    database='EMS',
+                    port=3307
+                ) 
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+        except:
+            return {"error":"mysql connection"}
+        
+        d3f1021 = {}
+
+        dblk3f = defaultdict(float)
+
+
+        def Dblk7f(polledTime,Energy,id):
+            polledTime = str(polledTime)[0:14]+"00:00"
+            
+            if id == 1021:
+                if polledTime in d3f1021.keys():
+                    d3f1021[polledTime].append(Energy)
+                else:
+                    d3f1021[polledTime] = [Energy]
+        
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1021 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        
+        for i in d3f1021.keys():
+            dblk3f[i] += sum(d3f1021[i])
+        
+        
+        for i in dblk3f.keys():
+            val = (dblk3f[i],i)
+            sql = "INSERT INTO EMS.OthersConsumption(dblock3f,polledTime) VALUES(%s,%s)"
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("D-block 3rd floor inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.OthersConsumption SET dblock3f = %s where polledTime = %s"
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("D block 3rd floor updated") 
+        
+        data = {"message":"D-block 3rd floor"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+
+@app.route('/dblk7f', methods = ['GET'])
+def dblk7f():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            bmsdb = mysql.connector.connect(
+                host=bmshost,
+                user="emsrouser",
+                password="emsrouser@151",
+                database='bmsmgmtprodv13',
+                port=3306
+            )
+            awsdb = mysql.connector.connect(
+                    host=awshost,
+                    user="emsroot",
+                    password="22@teneT",
+                    database='EMS',
+                    port=3307
+                ) 
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+        except:
+            return {"error":"mysql connection"}
+        
+        d7f1121 = {}
+        d7f1122 = {}
+        d7f1123 = {}
+        d7f1124 = {}
+        d7f1125 = {}
+        d7f1126 = {}
+        d7f1127 = {}
+        d7f1128 = {}
+        d7f1151 = {}
+        d7f1152 = {}
+        d7f1153 = {}
+
+        dblk7f = defaultdict(float)
+
+
+        def Dblk7f(polledTime,Energy,id):
+            polledTime = str(polledTime)[0:14]+"00:00"
+            
+            if id == 1121:
+                if polledTime in d7f1121.keys():
+                    d7f1121[polledTime].append(Energy)
+                else:
+                    d7f1121[polledTime] = [Energy]
+            
+            if id == 1122:
+                if polledTime in d7f1122.keys():
+                    d7f1122[polledTime].append(Energy)
+                else:
+                    d7f1122[polledTime] = [Energy]
+            
+            if id == 1123:
+                if polledTime in d7f1123.keys():
+                    d7f1123[polledTime].append(Energy)
+                else:
+                    d7f1123[polledTime] = [Energy]
+            
+            if id == 1124:
+                if polledTime in d7f1124.keys():
+                    d7f1124[polledTime].append(Energy)
+                else:
+                    d7f1124[polledTime] = [Energy]
+                
+            if id == 1125:
+                if polledTime in d7f1125.keys():
+                    d7f1125[polledTime].append(Energy)
+                else:
+                    d7f1125[polledTime] = [Energy]
+            
+            if id == 1126:
+                if polledTime in d7f1126.keys():
+                    d7f1126[polledTime].append(Energy)
+                else:
+                    d7f1126[polledTime] = [Energy]
+            
+            if id == 1127:
+                if polledTime in d7f1127.keys():
+                    d7f1127[polledTime].append(Energy)
+                else:
+                    d7f1127[polledTime] = [Energy]
+
+            if id == 1128:
+                if polledTime in d7f1128.keys():
+                    d7f1128[polledTime].append(Energy)
+                else:
+                    d7f1128[polledTime] = [Energy]
+            
+            if id == 1151:
+                if polledTime in d7f1151.keys():
+                    d7f1151[polledTime].append(Energy)
+                else:
+                    d7f1151[polledTime] = [Energy]
+            
+            if id == 1152:
+                if polledTime in d7f1152.keys():
+                    d7f1152[polledTime].append(Energy)
+                else:
+                    d7f1152[polledTime] = [Energy]
+            
+            if id == 1153:
+                if polledTime in d7f1153.keys():
+                    d7f1153[polledTime].append(Energy)
+                else:
+                    d7f1153[polledTime] = [Energy]        
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1121 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1122 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+            
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1123 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+        
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1124 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1125 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1126 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1127 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+        
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1128 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1151 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1152 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+        
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1153 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Dblk7f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        for i in d7f1121.keys():
+            dblk7f[i] += sum(d7f1121[i])
+        
+        for i in d7f1122.keys():
+            dblk7f[i] += sum(d7f1122[i])
+
+        for i in d7f1123.keys():
+            dblk7f[i] += sum(d7f1123[i])
+
+        for i in d7f1124.keys():
+            dblk7f[i] += sum(d7f1124[i])
+        
+        for i in d7f1125.keys():
+            dblk7f[i] += sum(d7f1125[i])
+        
+        for i in d7f1126.keys():
+            dblk7f[i] += sum(d7f1126[i])
+        
+        for i in d7f1127.keys():
+            dblk7f[i] += sum(d7f1127[i])
+        
+        for i in d7f1128.keys():
+            dblk7f[i] += sum(d7f1128[i])
+        
+        for i in d7f1151.keys():
+            dblk7f[i] += sum(d7f1151[i])
+        
+        for i in d7f1152.keys():
+            dblk7f[i] += sum(d7f1152[i])
+        
+        for i in d7f1153.keys():
+            dblk7f[i] += sum(d7f1153[i])
+
+        for i in dblk7f.keys():
+            val = (dblk7f[i],i)
+            sql = "INSERT INTO EMS.OthersConsumption(dblock7f,polledTime) VALUES(%s,%s)"
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("D-block 7th floor inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.OthersConsumption SET dblock7f = %s where polledTime = %s"
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("D block 7th floor updated") 
+        
+        data = {"message":"D-block 7th floor"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+
+@app.route('/mlcpgf', methods = ['GET'])
+def mlcpgf():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            bmsdb = mysql.connector.connect(
+                host=bmshost,
+                user="emsrouser",
+                password="emsrouser@151",
+                database='bmsmgmtprodv13',
+                port=3306
+            )
+            awsdb = mysql.connector.connect(
+                    host=awshost,
+                    user="emsroot",
+                    password="22@teneT",
+                    database='EMS',
+                    port=3307
+                ) 
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+        except:
+            return {"error":"mysql connection"}
+        
+        mlcp348 = {}
+        mlcp351 = {}
+        mlcp353 = {}
+        mlcp354 = {}
+        mlcp356 = {}
+        mlcp360 = {}
+        mlcp1145 = {}
+        mlcp1148 = {}
+
+        mlcpgf = defaultdict(float)
+
+
+        def MlcpGf(polledTime,Energy,id):
+            polledTime = str(polledTime)[0:14]+"00:00"
+            
+            if id == 348:
+                if polledTime in mlcp348.keys():
+                    mlcp348[polledTime].append(Energy)
+                else:
+                    mlcp348[polledTime] = [Energy]
+            
+            if id == 351:
+                if polledTime in mlcp351.keys():
+                    mlcp351[polledTime].append(Energy)
+                else:
+                    mlcp351[polledTime] = [Energy]
+            
+            if id == 353:
+                if polledTime in mlcp353.keys():
+                    mlcp353[polledTime].append(Energy)
+                else:
+                    mlcp353[polledTime] = [Energy]
+            
+            if id == 354:
+                if polledTime in mlcp354.keys():
+                    mlcp354[polledTime].append(Energy)
+                else:
+                    mlcp354[polledTime] = [Energy]
+            
+            if id == 356:
+                if polledTime in mlcp356.keys():
+                    mlcp356[polledTime].append(Energy)
+                else:
+                    mlcp356[polledTime] = [Energy]
+            
+            if id == 360:
+                if polledTime in mlcp360.keys():
+                    mlcp360[polledTime].append(Energy)
+                else:
+                    mlcp360[polledTime] = [Energy]
+            
+            if id == 1145:
+                if polledTime in mlcp1145.keys():
+                    mlcp1145[polledTime].append(Energy)
+                else:
+                    mlcp1145[polledTime] = [Energy]
+            
+            if id == 1148:
+                if polledTime in mlcp1148.keys():
+                    mlcp1148[polledTime].append(Energy)
+                else:
+                    mlcp1148[polledTime] = [Energy]
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 348 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                MlcpGf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 351 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                MlcpGf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+        
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 353 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                MlcpGf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+        
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 354 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                MlcpGf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+        
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 356 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                MlcpGf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 360 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                MlcpGf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1145 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                MlcpGf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1148 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                MlcpGf(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+        
+
+        for i in mlcp348.keys():
+            mlcpgf[i] += sum(mlcp348[i])
+        
+        for i in mlcp351.keys():
+            mlcpgf[i]= sum(mlcp351[i])
+        
+        for i in mlcp353.keys():
+            mlcpgf[i] += sum(mlcp353[i])
+        
+        for i in mlcp354.keys():
+            mlcpgf[i] += sum(mlcp354[i])
+        
+        for i in mlcp356.keys():
+            mlcpgf[i] += sum(mlcp356[i])
+        
+        for i in mlcp360.keys():
+            mlcpgf[i] += sum(mlcp360[i])
+        
+        for i in mlcp1145.keys():
+            mlcpgf[i] += sum(mlcp1145[i])
+
+        for i in mlcp1148.keys():
+            mlcpgf[i] += sum(mlcp1148[i])
+
+        for i in mlcpgf.keys():
+            val = (mlcpgf[i],i)
+            sql = "INSERT INTO EMS.OthersConsumption(mlcpgf,polledTime) VALUES(%s,%s)"
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("MLCP ground floor inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.OthersConsumption SET mlcpgf = %s where polledTime = %s"
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("MLCP ground floor updated") 
+        
+        data = {"message":"Eblock 0th & 9th floor"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+@app.route('/eblockgf9f', methods = ['GET'])
+def eblockgf9f():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            bmsdb = mysql.connector.connect(
+                host=bmshost,
+                user="emsrouser",
+                password="emsrouser@151",
+                database='bmsmgmtprodv13',
+                port=3306
+            )
+            awsdb = mysql.connector.connect(
+                    host=awshost,
+                    user="emsroot",
+                    password="22@teneT",
+                    database='EMS',
+                    port=3307
+                ) 
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+        except:
+            return {"error":"mysql connection"}
+
+        eblk1180 = {}
+        eblk1207 = {}
+
+        elblock9f = defaultdict(float)
+        elblockgf = defaultdict(float)
+
+        def Eblock9f(polledTime,Energy,id):
+            polledTime = str(polledTime)[0:14]+"00:00"
+            
+            if id == 1180:
+                if polledTime in eblk1180.keys():
+                    eblk1180[polledTime].append(Energy)
+                else:
+                    eblk1180[polledTime] = [Energy]
+            
+            if id == 1207:
+                if polledTime in eblk1207.keys():
+                    eblk1207[polledTime].append(Energy)
+                else:
+                    eblk1207[polledTime] = [Energy]
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1180 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Eblock9f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+        
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1207 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Eblock9f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        for i in eblk1180.keys():
+            elblock9f[i] += sum(eblk1180[i])
+        
+        for i in eblk1207.keys():
+            elblockgf[i] += sum(eblk1207[i])
+        
+
+        for i in elblock9f.keys():
+            val = (elblock9f[i],i)
+            sql = "INSERT INTO EMS.OthersConsumption(eblockf9,polledTime) VALUES(%s,%s)"
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("E block 9th floor inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.OthersConsumption SET eblockf9 = %s where polledTime = %s"
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("E block 9th floor updated") 
+
+        for i in elblockgf.keys():
+            val = (elblockgf[i],i)
+            sql = "INSERT INTO EMS.OthersConsumption(eblockgf,polledTime) VALUES(%s,%s)"
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("E block 0th floor inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.OthersConsumption SET eblockgf = %s where polledTime = %s"
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("E block 0th floor updated")
+
+        data = {"message":"Eblock 0th & 9th floor"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+
+@app.route('/eblock1f', methods = ['GET'])
+def eblock1f():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            bmsdb = mysql.connector.connect(
+                host=bmshost,
+                user="emsrouser",
+                password="emsrouser@151",
+                database='bmsmgmtprodv13',
+                port=3306
+            )
+            awsdb = mysql.connector.connect(
+                    host=awshost,
+                    user="emsroot",
+                    password="22@teneT",
+                    database='EMS',
+                    port=3307
+                ) 
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+        except:
+            return {"error":"mysql connection"}
+        
+        eblk1133 = {}
+        eblk1136 = {}
+        eblk1138 = {}
+        eblk1142 = {}
+        eblk1162 = {}
+        eblk1164 = {}
+        eblk1166 = {}
+        eblk1170 = {}
+
+        elblock = defaultdict(float)
+
+        def Eblock1f(polledTime,Energy,id):
+            polledTime = str(polledTime)[0:14]+"00:00"
+            
+            if id == 1133:
+                if polledTime in eblk1133.keys():
+                    eblk1133[polledTime].append(Energy)
+                else:
+                    eblk1133[polledTime] = [Energy]
+            
+            if id == 1136:
+                if polledTime in eblk1136.keys():
+                    eblk1136[polledTime].append(Energy)
+                else:
+                    eblk1136[polledTime] = [Energy]
+            
+            if id == 1138:
+                if polledTime in eblk1138.keys():
+                    eblk1138[polledTime].append(Energy)
+                else:
+                    eblk1138[polledTime] = [Energy]
+            
+            if id == 1142:
+                if polledTime in eblk1142.keys():
+                    eblk1142[polledTime].append(Energy)
+                else:
+                    eblk1142[polledTime] = [Energy]
+
+            if id == 1162:
+                if polledTime in eblk1162.keys():
+                    eblk1162[polledTime].append(Energy)
+                else:
+                    eblk1162[polledTime] = [Energy]
+            
+            if id == 1164:
+                if polledTime in eblk1164.keys():
+                    eblk1164[polledTime].append(Energy)
+                else:
+                    eblk1164[polledTime] = [Energy]
+            
+            if id == 1166:
+                if polledTime in eblk1166.keys():
+                    eblk1166[polledTime].append(Energy)
+                else:
+                    eblk1166[polledTime] = [Energy]
+            
+            if id == 1170:
+                if polledTime in eblk1170.keys():
+                    eblk1170[polledTime].append(Energy)
+                else:
+                    eblk1170[polledTime] = [Energy]
+
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1133 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e36res = bmscur.fetchall()
+
+        for i in range(1,len(e36res)):
+            if e36res[i][1] != None and e36res[i-1][1] != None:
+                Eblock1f(e36res[i][0],e36res[i][1]-e36res[i-1][1],e36res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1136 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e66res = bmscur.fetchall()
+
+        for i in range(1,len(e66res)):
+            if e66res[i][1] != None and e66res[i-1][1] != None:
+                Eblock1f(e66res[i][0],e66res[i][1]-e66res[i-1][1],e66res[i][2])
+        
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1138 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e66res = bmscur.fetchall()
+
+        for i in range(1,len(e66res)):
+            if e66res[i][1] != None and e66res[i-1][1] != None:
+                Eblock1f(e66res[i][0],e66res[i][1]-e66res[i-1][1],e66res[i][2])
+        
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1142 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e66res = bmscur.fetchall()
+
+        for i in range(1,len(e66res)):
+            if e66res[i][1] != None and e66res[i-1][1] != None:
+                Eblock1f(e66res[i][0],e66res[i][1]-e66res[i-1][1],e66res[i][2])
+
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1162 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e66res = bmscur.fetchall()
+
+        for i in range(1,len(e66res)):
+            if e66res[i][1] != None and e66res[i-1][1] != None:
+                Eblock1f(e66res[i][0],e66res[i][1]-e66res[i-1][1],e66res[i][2])
+        
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1164 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e66res = bmscur.fetchall()
+
+        for i in range(1,len(e66res)):
+            if e66res[i][1] != None and e66res[i-1][1] != None:
+                Eblock1f(e66res[i][0],e66res[i][1]-e66res[i-1][1],e66res[i][2])
+        
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1166 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e66res = bmscur.fetchall()
+
+        for i in range(1,len(e66res)):
+            if e66res[i][1] != None and e66res[i-1][1] != None:
+                Eblock1f(e66res[i][0],e66res[i][1]-e66res[i-1][1],e66res[i][2])
+        
+        bmscur.execute("SELECT acmeterpolledtimestamp,acmeterenergy,acmetersubsystemid FROM bmsmgmtprodv13.acmeterreadings where acmetersubsystemid = 1170 and date(acmeterpolledtimestamp) = curdate();")
+        
+        e66res = bmscur.fetchall()
+
+        for i in range(1,len(e66res)):
+            if e66res[i][1] != None and e66res[i-1][1] != None:
+                Eblock1f(e66res[i][0],e66res[i][1]-e66res[i-1][1],e66res[i][2])
+
+
+        for i in eblk1133.keys():
+            elblock[i] += sum(eblk1133[i])
+        
+        for i in eblk1136.keys():
+            elblock[i] += sum(eblk1136[i])
+        
+        for i in eblk1138.keys():
+            elblock[i] += sum(eblk1138[i])
+        
+        for i in eblk1142.keys():
+            elblock[i] += sum(eblk1142[i])
+        
+        for i in eblk1162.keys():
+            elblock[i] += sum(eblk1162[i])
+        
+        for i in eblk1164.keys():
+            elblock[i] += sum(eblk1164[i])
+        
+        for i in eblk1166.keys():
+            elblock[i] += sum(eblk1166[i])
+
+        for i in eblk1170.keys():
+            elblock[i] += sum(eblk1170[i])
+
+
+
+        for i in elblock.keys():
+            val = (elblock[i],i)
+            sql = "INSERT INTO EMS.OthersConsumption(eblock1f,polledTime) VALUES(%s,%s)"
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("E block 1st floor inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.OthersConsumption SET eblock1f = %s where polledTime = %s"
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("E block 1st floor updated")
+        
+        data = {"message":"Eblock 1st floor"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401 
 
 @app.route('/tsstoredwater', methods = ['GET'])
 def tsStoredWater():
@@ -934,21 +2142,23 @@ def wheeledHourly():
         emscur = emsdb.cursor()
         proscur = processeddb.cursor()
 
-        def Hourlywheeled(polledTime,Energy):
-            hour = str(polledTime)[0:13] + ":00:00"
-            if hour in hourly_wheeled.keys():
-                if Energy >=0 and Energy <=100:
-                    hourly_wheeled[hour] += Energy
-            else:
-                if Energy>=0 and Energy <=100:
-                    hourly_wheeled[hour] = Energy
+        hourly_wheeled = {}
 
-        proscur.execute("select createdTime,ctsedogenergy from bmsmgmtprodv13.ctsedogreadings where date(createdTime) = curdate();")
+        def HourSeg(polledTime,Energy):
+            polledTime = str(polledTime)[0:14]+"00:00"
+            if Energy >= 0  and Energy <=100:
+                if polledTime in hourly_wheeled.keys():
+                    hourly_wheeled[polledTime] += Energy
+                else:
+                    hourly_wheeled[polledTime] = Energy
 
-        wheeled_res = proscur.fetchall()
+        emscur.execute("SELECT metertimestamp,meterenergy FROM EMS.EMSMeterData where date(metertimestamp) = curdate();")
 
-        for i in range( 1,len(wheeled_res)):
-            Hourlywheeled(wheeled_res[i][0],(wheeled_res[i][1]-wheeled_res[i-1][1])*1000)
+        res = emscur.fetchall()
+
+        for i in range(1,len(res)):
+            if res[i][1] != None and res[i-1][1] != None:
+                HourSeg(res[i][0],(res[i][1]-res[i-1][1])*1000)
             
         for i in hourly_wheeled.keys():
             sql = "INSERT INTO WheeledHourly(polledTime,Energy) VALUES(%s,%s)"

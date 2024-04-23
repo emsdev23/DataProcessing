@@ -4,6 +4,15 @@ import time
 
 headers = {'Authorization': 'VKOnNhH2SebMU6S'}
 
+mxpurl = 'http://localhost:8000/maxpeakjmp'
+atfurl = 'http://localhost:8000/ablktf'
+btfurl = 'http://localhost:8000/bblktf'
+ctfurl = 'http://localhost:8000/cblktf'
+d3furl = 'http://localhost:8000/dblk3f'
+d7furl = 'http://localhost:8000/dblk7f'
+mlcpurl = 'http://localhost:8000/mlcpgf'
+eblk9url = 'http://localhost:8000/eblockgf9f'
+eblk1url = 'http://localhost:8000/eblock1f'
 tstmpurl = 'http://localhost:8000/tsstoredwater'
 invurl = 'http://localhost:8000/inverterhour'
 elcurl = 'http://localhost:8000/electricDayWise'
@@ -28,6 +37,60 @@ ltourl = 'http://localhost:8000/ltohourly'
 dgurl = 'http://localhost:8000/dghourly'
 dgqurl = 'http://localhost:8000/dgquarterly'
 
+
+def maxpjf():
+    print("Max Peak jump")
+    upsres = requests.get(mxpurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def ablktf():
+    print("A block terrace")
+    upsres = requests.get(atfurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def bblktf():
+    print("B block terrace")
+    upsres = requests.get(btfurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def cblktf():
+    print("C block terrace")
+    upsres = requests.get(ctfurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def dblk7f():
+    print("D block 7th floor")
+    upsres = requests.get(d7furl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def dblk3f():
+    print("D block 3rd floor")
+    upsres = requests.get(d3furl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def mlcpgf():
+    print("MLCP 0th floor")
+    upsres = requests.get(mlcpurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def eblk9f():
+    print("Eblock 0th & 9th floor")
+    upsres = requests.get(eblk9url, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def eblk1f():
+    print("Eblock 1st floor")
+    upsres = requests.get(eblk1url, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
 
 def tstemp():
     print("TS Stored Water quarterly")
@@ -168,7 +231,7 @@ def demand():
     time.sleep(10)
 
 
-function_names = ['upshr']
+function_names = ['maxpjf']
     #'thermalq','grid','bms','peak','ltoHour','griddaily','peakq','thermal','wheel','roof','thermalstatus','roofd','peakd','demandp']
 
 while True:
