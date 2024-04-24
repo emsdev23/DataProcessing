@@ -4,6 +4,7 @@ import time
 
 headers = {'Authorization': 'VKOnNhH2SebMU6S'}
 
+clturl = 'http://localhost:8000/clientpower'
 mxpurl = 'http://localhost:8000/maxpeakjmp'
 atfurl = 'http://localhost:8000/ablktf'
 btfurl = 'http://localhost:8000/bblktf'
@@ -37,6 +38,11 @@ ltourl = 'http://localhost:8000/ltohourly'
 dgurl = 'http://localhost:8000/dghourly'
 dgqurl = 'http://localhost:8000/dgquarterly'
 
+def cltfn():
+    print("Client Power")
+    upsres = requests.get(clturl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
 
 def maxpjf():
     print("Max Peak jump")
@@ -231,7 +237,7 @@ def demand():
     time.sleep(10)
 
 
-function_names = ['maxpjf']
+function_names = ['cltfn']
     #'thermalq','grid','bms','peak','ltoHour','griddaily','peakq','thermal','wheel','roof','thermalstatus','roofd','peakd','demandp']
 
 while True:

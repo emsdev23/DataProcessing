@@ -3,6 +3,8 @@ import mysql.connector
 from datetime import datetime
 from decimal import Decimal
 from collections import defaultdict
+import pandas as pd
+import json
 
 app = Flask(__name__)
 
@@ -14,6 +16,95 @@ def check_authentication(token):
     # Replace this with your own logic to validate the token
     valid_token = "VKOnNhH2SebMU6S"
     return token == valid_token
+
+@app.route('/clientpower', methods = ['GET'])
+def clientPower():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    file_path = './tenant_info.json'
+
+    with open(file_path, 'r') as json_file:
+        tenant_info = json.load(json_file)
+
+    if token and check_authentication(token):
+        try:
+            bmsdb =  mysql.connector.connect(
+            host=bmshost,
+            user="emsrouser",
+            password="emsrouser@151",
+            database='bmsmgmtprodv13',
+            port=3306
+            )
+
+            awsdb = mysql.connector.connect(
+                        host=awshost,
+                        user="emsroot",
+                        password="22@teneT",
+                        database='EMS',
+                        port=3307
+                        )
+
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+        except Exception as ex:
+            print(ex)
+            return {"Error":"Mysql connector"}
+        
+        bmscur.execute("""SELECT 
+                    acmetersubsystemid,
+                    CONCAT(DATE_FORMAT(acmeterpolledtimestamp, '%Y-%m-%d %H:'), LPAD(FLOOR(MINUTE(acmeterpolledtimestamp) / 15) * 15, 2, '0')) AS fifteen_min_interval,
+                    MAX(acmeterpower) AS max_power
+                FROM 
+                    bmsmgmtprodv13.acmeterreadings
+                WHERE 
+                    acmeterpolledtimestamp >= CURDATE() AND acmeterpolledtimestamp < CURDATE() + INTERVAL 1 DAY
+                GROUP BY 
+                    acmetersubsystemid, 
+                    CONCAT(DATE_FORMAT(acmeterpolledtimestamp, '%Y-%m-%d %H:'), LPAD(FLOOR(MINUTE(acmeterpolledtimestamp) / 15) * 15, 2, '0'));""")
+
+        res = bmscur.fetchall()
+
+        df = pd.DataFrame(res, columns=['acmetersubsystemid', 'polledTime', 'max_power'])
+
+        tenant_df = pd.DataFrame.from_dict(tenant_info, orient='index', columns=['TenantName', 'Block', 'Floor','MVPno'])
+
+        tenant_df.reset_index(inplace=True)
+
+        tenant_df.rename(columns={'index': 'acmetersubsystemid'}, inplace=True)
+
+        tenant_df['acmetersubsystemid'] = tenant_df['acmetersubsystemid'].astype(int)
+
+        result_df = pd.merge(df, tenant_df, on='acmetersubsystemid', how='left')
+
+        filtered_df = result_df[result_df['TenantName'].notna()]
+
+        sum_power_df = filtered_df.groupby(['polledTime','acmetersubsystemid', 'TenantName', 'Block', 'Floor', 'MVPno'])['max_power'].sum().reset_index()
+
+        print(sum_power_df.tail(100))
+
+        updated_df = sum_power_df.tail(500)
+
+        for index,row in updated_df.iterrows():
+            print(row['acmetersubsystemid'],row['polledTime'],row['TenantName'],row['Block'],row['Floor'],row['MVPno'],row['max_power'])
+            sql = """INSERT INTO EMS.ClientPower (subsystemid, polledTime, TenantName, Block, Floor, MVPno, max_power)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            ON DUPLICATE KEY UPDATE
+                                TenantName = VALUES(TenantName),
+                                Block = VALUES(Block),
+                                Floor = VALUES(Floor),
+                                MVPno = VALUES(MVPno),
+                                max_power = VALUES(max_power)"""
+            val = (row['acmetersubsystemid'], row['polledTime'], row['TenantName'], row['Block'], row['Floor'], row['MVPno'], row['max_power'])
+
+            awscur.execute(sql,val)
+            awsdb.commit()
+
+        data = {"message":"Client Power Updated"}
+        return jsonify(data), 200
+    
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
 
 @app.route('/maxpeakjmp', methods = ['GET'])
 def maxpeakjmp():
