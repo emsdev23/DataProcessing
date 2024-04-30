@@ -135,32 +135,42 @@ def maxpeakjmp():
             print(ex)
             return {"Error":"mysql connector"}
 
-        bmscur.execute('select totalApparentPower2,date(polledTime) from bmsmgmt_olap_prod_v13.hvacSchneider7230Polling WHERE date(polledTime) = date(CURDATE()-1)')
+        bmscur.execute('select totalApparentPower2,date(polledTime),polledTime from bmsmgmt_olap_prod_v13.hvacSchneider7230Polling WHERE date(polledTime) = CURDATE()')
 
         res = bmscur.fetchall()
 
-        max_jump = []
+        max_jump = {}
 
         for i in range(1,len(res)):
             if res[i][0] != None and res[i-1][0] != None:
-                max_jump.append(abs(res[i][0]-res[i-1][0]))
+                max_jump[res[i][2]] = (abs(res[i][0]-res[i-1][0]))
 
         polledDate = res[0][1]
 
-        maxJump = round(max(max_jump),2)
+        def findTime(dictionary, value):
+            for key, val in dictionary.items():
+                if val == value:
+                    return key
+            return None
 
-        sql = "INSERT INTO EMS.PeakMaxJump(peakJump,polledDate) VALUES(%s,%s)"
-        val = (maxJump,polledDate)
+        jumpLi = list(max_jump.values())
+
+        maxVal = max(jumpLi)
+
+        
+        polledTime = findTime(max_jump,maxVal)
+
+        sql = "INSERT INTO EMS.PeakMaxJump(peakJump,peakTime,polledDate) VALUES(%s,%s,%s)"
+        val = (maxVal,polledTime,polledDate)
+
         try:
             awscur.execute(sql,val)
             awsdb.commit()
-            print(val)
             print("Max Peak Jump inserted")
         except mysql.connector.IntegrityError:
-            sql = "UPDATE EMS.PeakMaxJump SET peakJump = %s WHERE polledDate = %s"
+            sql = "UPDATE EMS.PeakMaxJump SET peakJump = %s, peakTime = %s WHERE polledDate = %s"
             awscur.execute(sql,val)
             awsdb.commit()
-            print(val)
             print("Max Peak Jump updated")
 
         data = {"message":"Max Peak Jump"}
