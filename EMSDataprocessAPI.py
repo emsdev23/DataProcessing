@@ -135,7 +135,7 @@ def maxpeakjmp():
             print(ex)
             return {"Error":"mysql connector"}
 
-        bmscur.execute('select totalApparentPower2,date(polledTime) from bmsmgmt_olap_prod_v13.hvacSchneider7230Polling WHERE date(polledTime) = CURDATE()')
+        bmscur.execute('select totalApparentPower2,date(polledTime) from bmsmgmt_olap_prod_v13.hvacSchneider7230Polling WHERE date(polledTime) = date(CURDATE()-1)')
 
         res = bmscur.fetchall()
 
@@ -2204,13 +2204,12 @@ def dgHourly():
         return jsonify({'error': 'Unauthorized'}), 401
 
 
-@app.route('/wheeledhourly', methods = ['GET'])
-def wheeledHourly():
+@app.route('/wheeledhourlyph1', methods = ['GET'])
+def wheeledHourlyph1():
     token = request.headers.get('Authorization')
     print(token)
     
     if token and check_authentication(token):
-        rad = {}
         radhr = {}
         hourly_wheeled= {}
 
@@ -2221,17 +2220,8 @@ def wheeledHourly():
                             database='EMS',
                             port=3307
                         )
-        
-        processeddb = mysql.connector.connect(
-                    host=bmshost,
-                    user="emsrouser",
-                    password="emsrouser@151",
-                    database='bmsmgmtprodv13',
-                    port=3306
-                    )
 
         emscur = emsdb.cursor()
-        proscur = processeddb.cursor()
 
         hourly_wheeled = {}
 
@@ -2243,7 +2233,7 @@ def wheeledHourly():
                 else:
                     hourly_wheeled[polledTime] = Energy
 
-        emscur.execute("SELECT metertimestamp,meterenergy FROM EMS.EMSMeterData where date(metertimestamp) = curdate();")
+        emscur.execute("SELECT metertimestamp,meterenergy FROM EMS.EMSMeterData where date(metertimestamp) = curdate() and meterdeviceid = 1;")
 
         res = emscur.fetchall()
 
@@ -2342,7 +2332,6 @@ def wheeledHourly():
                     print("Wheeled in irradiation updated")
 
         emscur.close()
-        proscur.close()
         
         data = {"message":"WHEELED HOURLY"}
         return jsonify(data), 200
