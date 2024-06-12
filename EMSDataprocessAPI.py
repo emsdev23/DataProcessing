@@ -2488,8 +2488,8 @@ def wheeledHourlyph2():
             else:
                 radhr[hour] = [irrad]
 
-        emscur.execute("""select wmstimestamp,CAST(wmsirradiation AS DECIMAL(18, 2)) from EMS.EMSWMSData WHERE DATE(wmstimestamp) = curdate();""")
-        result = emscur.fetchall()          
+        bmscur.execute("""SELECT createdTime,CAST(ctsedwmsirradiation AS DECIMAL(18, 2)) FROM bmsmgmtprodv13.ctsedwmsreadings where date(createdTime) = curdate();""")
+        result = bmscur.fetchall()          
 
         for row in result:
             # print(row[0],row[1])
@@ -2635,8 +2635,8 @@ def wheeledHourlyph1():
             else:
                 radhr[hour] = [irrad]
 
-        emscur.execute("""select wmstimestamp,CAST(wmsirradiation AS DECIMAL(18, 2)) from EMS.EMSWMSData WHERE DATE(wmstimestamp) = curdate();""")
-        result = emscur.fetchall()          
+        bmscur.execute("""SELECT createdTime,CAST(ctsedwmsirradiation AS DECIMAL(18, 2)) FROM bmsmgmtprodv13.ctsedwmsreadings where date(createdTime) = curdate();""")
+        result = bmscur.fetchall()          
 
         for row in result:
             # print(row[0],row[1])
