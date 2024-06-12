@@ -17,6 +17,704 @@ def check_authentication(token):
     valid_token = "VKOnNhH2SebMU6S"
     return token == valid_token
 
+
+@app.route('/ioeHourly', methods = ['GET'])
+def ioeHourly():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            awsdb = mysql.connector.connect(
+                        host=awshost,
+                        user="emsroot",
+                        password="22@teneT",
+                        database='EMS',
+                        port=3307
+                        )
+            
+            emsdb = mysql.connector.connect(
+                        host=emshost,
+                        user="emsroot",
+                        password="22@teneT",
+                        database='EMS',
+                        port=3306
+                        )
+            emscur = emsdb.cursor()
+            awscur = awsdb.cursor()
+        except:
+            return {"error":"mysql connection"}
+
+        emscur.execute("""select batteryStatus,chargingEnergy,dischargingEnergy,packUsableSOC,recordTimestamp from ioeSt1BatteryData where date(recordTimestamp) = curdate();""")
+
+        results1 = emscur.fetchall()
+
+        chgdict1 = {}
+        dchgdict1 ={}
+        chgmin1 = {}
+        dchgmin1 = {}
+        packdict1 = {}
+        chglist1 =[]
+        dchglist1 = []
+
+        def summarizePacksoc1(polledTime,packSoc):
+            hour = str(polledTime)[0:14]+"00:00"
+            if hour not in packdict1.keys():
+                packdict1[hour] = [packSoc]
+            else:
+                packdict1[hour].append(packSoc)
+
+        def summarizeHourChg1(polledTime,charging):
+            hour = str(polledTime)[0:14]+"00:00"
+            
+            if hour not in chgdict1.keys():
+                chgdict1[hour] = charging
+            else:
+                chgdict1[hour] += charging
+                
+        def summarizeHourDchg1(polledTime,discharging):
+            hour = str(polledTime)[0:14]+"00:00"
+            if hour not in dchgdict1.keys():
+                dchgdict1[hour] = discharging
+            else:
+                dchgdict1[hour] += discharging
+
+
+        def cummlativeChg1(polledTime,charging):
+            chglist1.append([polledTime,charging])
+
+
+        def cummlativeDchg1(polledTime,discharging):
+            dchglist1.append([polledTime,discharging])
+
+
+        def summarizeMin1(status,charging,discharging,polledTime):
+            min = str(polledTime)[0:17]+"00"
+            if status == "CHG" and charging!=None:
+                if min not in chgmin1.keys():
+                    chgmin1[min] = [charging]
+                else:
+                    chgmin1[min].append(charging)
+            elif status == "DCHG" and discharging!= None:
+                if min not in dchgmin1.keys():
+                    # print(discharging)
+                    dchgmin1[min] = [discharging]
+                else:
+                    dchgmin1[min].append(discharging)
+
+        
+        for i in range(0,len(results1)):
+            summarizeMin1(results1[i][0],results1[i][1],results1[i][2],results1[i][4])
+            if results1[i][3] != None:
+                if results1[i][3]<=100:
+                #print(results[i][4],results[i][3])
+                    summarizePacksoc1(results1[i][4],results1[i][3])    
+
+        for i in chgmin1.keys():
+            cummlativeChg1(i,max(chgmin1[i]))
+
+        for i in dchgmin1.keys():
+            cummlativeDchg1(i,max(dchgmin1[i]))
+            
+        for i in range(1,len(chglist1)):
+            if abs(chglist1[i][1]-chglist1[i-1][1]) > 0:
+                summarizeHourChg1(chglist1[i][0],(chglist1[i][1]-chglist1[i-1][1])/1000)
+                # print(chglist[i][0],(chglist[i][1]-chglist[i-1][1])/1000)
+
+        for i in range(0,len(dchglist1)):
+            if dchglist1[i][1]-dchglist1[i-1][1] > 0:
+                # print(dchglist[i][0],dchglist[i][1]-dchglist[i-1][1])
+                summarizeHourDchg1(dchglist1[i][0],(dchglist1[i][1]-dchglist1[i-1][1])/1000)
+            
+        # for i in dchgmin.keys():
+        #     summarizeHourDchg(i,max(dchgmin[i]))
+                
+        for i in chgdict1.keys():
+            print(i,round(abs(chgdict1[i]),2))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st1chargingEnergy) VALUES(%s,%s)"
+            val = (i,abs(chgdict1[i]))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery chg hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st1chargingEnergy = %s WHERE polledTime = %s"
+                val = (abs(chgdict1[i]),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery chg hourly")
+                
+        for i in packdict1.keys():
+            print(i,max(packdict1[i]))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st1packsoc) VALUES(%s,%s)"
+            val = (i,max(packdict1[i]))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Battery insert packsoc hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st1packsoc = %s WHERE polledTime = %s"
+                val = (max(packdict1[i]),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Battery update packsoc hourly")
+        
+
+        for i in dchgdict1.keys():
+            print(i,round(-abs(dchgdict1[i]),2))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st1dischargingEnergy) VALUES(%s,%s)"
+            val = (i,round(-abs(dchgdict1[i]),2))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery dchg hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st1dischargingEnergy = %s WHERE polledTime = %s"
+                val = (round(-abs(dchgdict1[i]),2),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery dchg hourly")
+
+        emscur.execute("""select batteryStatus,chargingEnergy,dischargingEnergy,packUsableSOC,recordTimestamp from ioeSt2BatteryData where date(recordTimestamp) = curdate();""")
+
+        results2 = emscur.fetchall()
+
+        chgdict2 = {}
+        dchgdict2 ={}
+        chgmin2 = {}
+        dchgmin2 = {}
+        packdict2 = {}
+        chglist2 =[]
+        dchglist2 = []
+
+        def summarizePacksoc2(polledTime,packSoc):
+            hour = str(polledTime)[0:14]+"00:00"
+            if hour not in packdict2.keys():
+                packdict2[hour] = [packSoc]
+            else:
+                packdict2[hour].append(packSoc)
+
+        def summarizeHourChg2(polledTime,charging):
+            hour = str(polledTime)[0:14]+"00:00"
+            
+            if hour not in chgdict2.keys():
+                chgdict2[hour] = charging
+            else:
+                chgdict2[hour] += charging
+                
+        def summarizeHourDchg2(polledTime,discharging):
+            hour = str(polledTime)[0:14]+"00:00"
+            if hour not in dchgdict2.keys():
+                dchgdict2[hour] = discharging
+            else:
+                dchgdict2[hour] += discharging
+
+
+        def cummlativeChg2(polledTime,charging):
+            chglist2.append([polledTime,charging])
+
+
+        def cummlativeDchg2(polledTime,discharging):
+            dchglist2.append([polledTime,discharging])
+
+
+        def summarizeMin2(status,charging,discharging,polledTime):
+            min = str(polledTime)[0:17]+"00"
+            if status == "CHG" and charging!=None:
+                if min not in chgmin2.keys():
+                    chgmin2[min] = [charging]
+                else:
+                    chgmin2[min].append(charging)
+            elif status == "DCHG" and discharging!= None:
+                if min not in dchgmin2.keys():
+                    # print(discharging)
+                    dchgmin2[min] = [discharging]
+                else:
+                    dchgmin2[min].append(discharging)
+
+        
+        for i in range(0,len(results2)):
+            summarizeMin2(results2[i][0],results2[i][1],results2[i][2],results2[i][4])
+            if results2[i][3] != None:
+                if results2[i][3]<=100:
+                #print(results[i][4],results[i][3])
+                    summarizePacksoc2(results2[i][4],results2[i][3])
+
+        for i in chgmin2.keys():
+            cummlativeChg2(i,max(chgmin2[i]))
+
+        for i in dchgmin2.keys():
+            cummlativeDchg2(i,max(dchgmin2[i]))
+            
+        for i in range(1,len(chglist2)):
+            if abs(chglist2[i][1]-chglist2[i-1][1]) > 0:
+                summarizeHourChg2(chglist2[i][0],(chglist2[i][1]-chglist2[i-1][1])/1000)
+                # print(chglist[i][0],(chglist[i][1]-chglist[i-1][1])/1000)
+
+        for i in range(0,len(dchglist2)):
+            if dchglist2[i][1]-dchglist2[i-1][1] > 0:
+                # print(dchglist[i][0],dchglist[i][1]-dchglist[i-1][1])
+                summarizeHourDchg2(dchglist2[i][0],(dchglist2[i][1]-dchglist2[i-1][1])/1000)
+            
+        # for i in dchgmin.keys():
+        #     summarizeHourDchg(i,max(dchgmin[i]))
+
+        for i in chgdict2.keys():
+            print(i,round(abs(chgdict2[i]),2))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st2chargingEnergy) VALUES(%s,%s)"
+            val = (i,abs(chgdict2[i]))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery chg hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st2chargingEnergy = %s WHERE polledTime = %s"
+                val = (abs(chgdict2[i]),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery chg hourly")
+                
+        for i in packdict2.keys():
+            print(i,max(packdict2[i]))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st2packsoc) VALUES(%s,%s)"
+            val = (i,max(packdict2[i]))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Battery insert packsoc hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st2packsoc = %s WHERE polledTime = %s"
+                val = (max(packdict2[i]),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Battery update packsoc hourly")
+
+        for i in dchgdict2.keys():
+            print(i,round(-abs(dchgdict2[i]),2))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st2dischargingEnergy) VALUES(%s,%s)"
+            val = (i,round(-abs(dchgdict2[i]),2))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery dchg hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st2dischargingEnergy = %s WHERE polledTime = %s"
+                val = (round(-abs(dchgdict2[i]),2),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                
+        emscur.execute("""select batteryStatus,chargingEnergy,dischargingEnergy,packUsableSOC,recordTimestamp from ioeSt3BatteryData where date(recordTimestamp) = curdate();""")
+
+        results3 = emscur.fetchall()
+
+        chgdict3 = {}
+        dchgdict3 ={}
+        chgmin3 = {}
+        dchgmin3 = {}
+        packdict3 = {}
+        chglist3 =[]
+        dchglist3 = []
+
+        def summarizePacksoc3(polledTime,packSoc):
+            hour = str(polledTime)[0:14]+"00:00"
+            if hour not in packdict3.keys():
+                packdict3[hour] = [packSoc]
+            else:
+                packdict3[hour].append(packSoc)
+
+        def summarizeHourChg3(polledTime,charging):
+            hour = str(polledTime)[0:14]+"00:00"
+            
+            if hour not in chgdict3.keys():
+                chgdict3[hour] = charging
+            else:
+                chgdict3[hour] += charging
+                
+        def summarizeHourDchg3(polledTime,discharging):
+            hour = str(polledTime)[0:14]+"00:00"
+            if hour not in dchgdict3.keys():
+                dchgdict3[hour] = discharging
+            else:
+                dchgdict3[hour] += discharging
+
+
+        def cummlativeChg3(polledTime,charging):
+            chglist3.append([polledTime,charging])
+
+
+        def cummlativeDchg3(polledTime,discharging):
+            dchglist3.append([polledTime,discharging])
+
+
+        def summarizeMin3(status,charging,discharging,polledTime):
+            min = str(polledTime)[0:17]+"00"
+            if status == "CHG" and charging!=None:
+                if min not in chgmin3.keys():
+                    chgmin3[min] = [charging]
+                else:
+                    chgmin3[min].append(charging)
+            elif status == "DCHG" and discharging!= None:
+                if min not in dchgmin3.keys():
+                    # print(discharging)
+                    dchgmin3[min] = [discharging]
+                else:
+                    dchgmin3[min].append(discharging)
+
+        
+        for i in range(0,len(results3)):
+            summarizeMin3(results3[i][0],results3[i][1],results3[i][2],results3[i][4])
+            if results3[i][3] != None:
+                if results3[i][3]<=100:
+                #print(results[i][4],results[i][3])
+                    summarizePacksoc3(results3[i][4],results3[i][3])
+
+        for i in chgmin3.keys():
+            cummlativeChg3(i,max(chgmin3[i]))
+
+        for i in dchgmin3.keys():
+            cummlativeDchg3(i,max(dchgmin3[i]))
+            
+        for i in range(1,len(chglist3)):
+            if abs(chglist3[i][1]-chglist3[i-1][1]) > 0:
+                summarizeHourChg3(chglist3[i][0],(chglist3[i][1]-chglist3[i-1][1])/1000)
+                # print(chglist[i][0],(chglist[i][1]-chglist[i-1][1])/1000)
+
+        for i in range(0,len(dchglist3)):
+            if dchglist3[i][1]-dchglist3[i-1][1] > 0:
+                # print(dchglist[i][0],dchglist[i][1]-dchglist[i-1][1])
+                summarizeHourDchg2(dchglist3[i][0],(dchglist3[i][1]-dchglist3[i-1][1])/1000)
+            
+
+
+        for i in chgdict3.keys():
+            print(i,round(abs(chgdict3[i]),2))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st3chargingEnergy) VALUES(%s,%s)"
+            val = (i,abs(chgdict3[i]))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery chg hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st3chargingEnergy = %s WHERE polledTime = %s"
+                val = (abs(chgdict3[i]),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery chg hourly")
+                
+        for i in packdict3.keys():
+            print(i,max(packdict3[i]))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st3packsoc) VALUES(%s,%s)"
+            val = (i,max(packdict3[i]))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Battery insert packsoc hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st3packsoc = %s WHERE polledTime = %s"
+                val = (max(packdict3[i]),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Battery update packsoc hourly")
+
+        for i in dchgdict3.keys():
+            print(i,round(-abs(dchgdict3[i]),2))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st3dischargingEnergy) VALUES(%s,%s)"
+            val = (i,round(-abs(dchgdict3[i]),2))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery dchg hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st3dischargingEnergy = %s WHERE polledTime = %s"
+                val = (round(-abs(dchgdict3[i]),2),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery dchg hourly")
+
+        emscur.execute("""select batteryStatus,chargingEnergy,dischargingEnergy,packUsableSOC,recordTimestamp from ioeSt4BatteryData where date(recordTimestamp) = curdate();""")
+
+        results4 = emscur.fetchall()
+
+        chgdict4 = {}
+        dchgdict4 ={}
+        chgmin4 = {}
+        dchgmin4 = {}
+        packdict4 = {}
+        chglist4 =[]
+        dchglist4 = []
+
+        def summarizePacksoc4(polledTime,packSoc):
+            hour = str(polledTime)[0:14]+"00:00"
+            if hour not in packdict4.keys():
+                packdict4[hour] = [packSoc]
+            else:
+                packdict4[hour].append(packSoc)
+
+        def summarizeHourChg4(polledTime,charging):
+            hour = str(polledTime)[0:14]+"00:00"
+            
+            if hour not in chgdict4.keys():
+                chgdict4[hour] = charging
+            else:
+                chgdict4[hour] += charging
+                
+        def summarizeHourDchg4(polledTime,discharging):
+            hour = str(polledTime)[0:14]+"00:00"
+            if hour not in dchgdict4.keys():
+                dchgdict4[hour] = discharging
+            else:
+                dchgdict4[hour] += discharging
+
+
+        def cummlativeChg4(polledTime,charging):
+            chglist4.append([polledTime,charging])
+
+
+        def cummlativeDchg4(polledTime,discharging):
+            dchglist4.append([polledTime,discharging])
+
+
+        def summarizeMin4(status,charging,discharging,polledTime):
+            min = str(polledTime)[0:17]+"00"
+            if status == "CHG" and charging!=None:
+                if min not in chgmin4.keys():
+                    chgmin4[min] = [charging]
+                else:
+                    chgmin4[min].append(charging)
+            elif status == "DCHG" and discharging!= None:
+                if min not in dchgmin4.keys():
+                    # print(discharging)
+                    dchgmin4[min] = [discharging]
+                else:
+                    dchgmin4[min].append(discharging)
+
+        
+        for i in range(0,len(results4)):
+            summarizeMin4(results4[i][0],results4[i][1],results4[i][2],results4[i][4])
+            if results4[i][3] != None:
+                if results4[i][3]<=100:
+                #print(results[i][4],results[i][3])
+                    summarizePacksoc4(results4[i][4],results4[i][3])
+
+        for i in chgmin4.keys():
+            cummlativeChg4(i,max(chgmin4[i]))
+
+        for i in dchgmin4.keys():
+            cummlativeDchg4(i,max(dchgmin4[i]))
+            
+        for i in range(1,len(chglist4)):
+            if abs(chglist4[i][1]-chglist4[i-1][1]) > 0:
+                summarizeHourChg4(chglist4[i][0],(chglist4[i][1]-chglist4[i-1][1])/1000)
+                # print(chglist[i][0],(chglist[i][1]-chglist[i-1][1])/1000)
+
+        for i in range(0,len(dchglist4)):
+            if dchglist4[i][1]-dchglist4[i-1][1] > 0:
+                # print(dchglist[i][0],dchglist[i][1]-dchglist[i-1][1])
+                summarizeHourDchg4(dchglist4[i][0],(dchglist4[i][1]-dchglist4[i-1][1])/1000)
+            
+        # for i in dchgmin.keys():
+        #     summarizeHourDchg(i,max(dchgmin[i]))
+                
+        #    print() 
+
+        for i in chgdict4.keys():
+            print(i,round(abs(chgdict4[i]),2))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st4chargingEnergy) VALUES(%s,%s)"
+            val = (i,abs(chgdict4[i]))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery chg hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st4chargingEnergy = %s WHERE polledTime = %s"
+                val = (abs(chgdict4[i]),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery chg hourly")
+                
+        for i in packdict4.keys():
+            print(i,max(packdict4[i]))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st4packsoc) VALUES(%s,%s)"
+            val = (i,max(packdict4[i]))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Battery insert packsoc hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st4packsoc = %s WHERE polledTime = %s"
+                val = (max(packdict4[i]),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Battery update packsoc hourly")
+
+        for i in dchgdict4.keys():
+            print(i,round(-abs(dchgdict4[i]),2))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st4dischargingEnergy) VALUES(%s,%s)"
+            val = (i,round(-abs(dchgdict4[i]),2))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery dchg hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st4dischargingEnergy = %s WHERE polledTime = %s"
+                val = (round(-abs(dchgdict4[i]),2),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery dchg hourly")  
+
+        emscur.execute("""select batteryStatus,chargingEnergy,dischargingEnergy,packUsableSOC,recordTimestamp from ioeSt5BatteryData where date(recordTimestamp) = curdate();""")
+
+        results5 = emscur.fetchall()
+
+        chgdict5 = {}
+        dchgdict5 ={}
+        chgmin5 = {}
+        dchgmin5 = {}
+        packdict5 = {}
+        chglist5 =[]
+        dchglist5 = []
+
+        def summarizePacksoc5(polledTime,packSoc):
+            hour = str(polledTime)[0:14]+"00:00"
+            if hour not in packdict5.keys():
+                packdict5[hour] = [packSoc]
+            else:
+                packdict5[hour].append(packSoc)
+
+        def summarizeHourChg5(polledTime,charging):
+            hour = str(polledTime)[0:14]+"00:00"
+            
+            if hour not in chgdict5.keys():
+                chgdict5[hour] = charging
+            else:
+                chgdict5[hour] += charging
+                
+        def summarizeHourDchg5(polledTime,discharging):
+            hour = str(polledTime)[0:14]+"00:00"
+            if hour not in dchgdict5.keys():
+                dchgdict5[hour] = discharging
+            else:
+                dchgdict5[hour] += discharging
+
+
+        def cummlativeChg5(polledTime,charging):
+            chglist5.append([polledTime,charging])
+
+
+        def cummlativeDchg5(polledTime,discharging):
+            dchglist5.append([polledTime,discharging])
+
+
+        def summarizeMin5(status,charging,discharging,polledTime):
+            min = str(polledTime)[0:17]+"00"
+            if status == "CHG" and charging!=None:
+                if min not in chgmin5.keys():
+                    chgmin5[min] = [charging]
+                else:
+                    chgmin5[min].append(charging)
+            elif status == "DCHG" and discharging!= None:
+                if min not in dchgmin5.keys():
+                    # print(discharging)
+                    dchgmin5[min] = [discharging]
+                else:
+                    dchgmin5[min].append(discharging)
+
+        
+        for i in range(0,len(results5)):
+            summarizeMin5(results5[i][0],results5[i][1],results5[i][2],results5[i][4])
+            if results5[i][3] != None:
+                if results5[i][3]<=100:
+                #print(results[i][4],results[i][3])
+                    summarizePacksoc5(results5[i][4],results5[i][3])
+
+
+        for i in chgmin5.keys():
+            cummlativeChg5(i,max(chgmin5[i]))
+
+        for i in dchgmin5.keys():
+            cummlativeDchg5(i,max(dchgmin5[i]))
+            
+        for i in range(1,len(chglist5)):
+            if abs(chglist5[i][1]-chglist5[i-1][1]) > 0:
+                summarizeHourChg5(chglist5[i][0],(chglist5[i][1]-chglist5[i-1][1])/1000)
+                # print(chglist[i][0],(chglist[i][1]-chglist[i-1][1])/1000)
+
+        for i in range(0,len(dchglist5)):
+            if dchglist5[i][1]-dchglist5[i-1][1] > 0:
+                # print(dchglist[i][0],dchglist[i][1]-dchglist[i-1][1])
+                summarizeHourDchg5(dchglist5[i][0],(dchglist5[i][1]-dchglist5[i-1][1])/1000)
+            
+        for i in chgdict5.keys():
+            print(i,round(abs(chgdict5[i]),2))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st5chargingEnergy) VALUES(%s,%s)"
+            val = (i,abs(chgdict5[i]))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery chg hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st5chargingEnergy = %s WHERE polledTime = %s"
+                val = (abs(chgdict5[i]),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery chg hourly")
+                
+        for i in packdict5.keys():
+            print(i,max(packdict5[i]))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st5packsoc) VALUES(%s,%s)"
+            val = (i,max(packdict5[i]))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Battery insert packsoc hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st5packsoc = %s WHERE polledTime = %s"
+                val = (max(packdict5[i]),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Battery update packsoc hourly")
+
+        for i in dchgdict5.keys():
+            print(i,round(-abs(dchgdict5[i]),2))
+            sql = "INSERT INTO IOEbatteryHourly(polledTime,st5dischargingEnergy) VALUES(%s,%s)"
+            val = (i,round(-abs(dchgdict5[i]),2))
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery dchg hourly")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE IOEbatteryHourly SET st5dischargingEnergy = %s WHERE polledTime = %s"
+                val = (round(-abs(dchgdict5[i]),2),i)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Battery dchg hourly")  
+    
+        data = {"message":"Ioe hourly Updated"}
+        return jsonify(data), 200
+    
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
 @app.route('/clientpower', methods = ['GET'])
 def clientPower():
     token = request.headers.get('Authorization')

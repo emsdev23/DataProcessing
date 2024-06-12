@@ -4,6 +4,7 @@ import time
 
 headers = {'Authorization': 'VKOnNhH2SebMU6S'}
 
+ioehurl = 'http://localhost:8000/ioeHourly'
 clturl = 'http://localhost:8000/clientpower'
 mxpurl = 'http://localhost:8000/maxpeakjmp'
 atfurl = 'http://localhost:8000/ablktf'
@@ -15,10 +16,12 @@ mlcpurl = 'http://localhost:8000/mlcpgf'
 eblk9url = 'http://localhost:8000/eblockgf9f'
 eblk1url = 'http://localhost:8000/eblock1f'
 tstmpurl = 'http://localhost:8000/tsstoredwater'
+invurl2 = 'http://localhost:8000/inverterhourph2'
 invurl = 'http://localhost:8000/inverterhour'
 elcurl = 'http://localhost:8000/electricDayWise'
 upsurl = 'http://localhost:8000/upsHourly'
-wheelurl = 'http://localhost:8000/wheeledhourly'
+wheelurl = 'http://localhost:8000/wheeledhourlyph1'
+wheelurl2 = 'http://localhost:8000/wheeledhourlyph2'
 gridurl = 'http://localhost:8000/gridhourly'
 griddurl = 'http://localhost:8000/griddaily'
 peakurl = 'http://localhost:8000/peakdemandhourly'
@@ -29,7 +32,6 @@ thermalqurl = 'http://localhost:8000//thermalquarterl'
 peakdurl='http://localhost:8000/peakdaily'
 energyurl = 'http://localhost:8000/enrgysaved'
 powerurl = 'http://localhost:8000/powerfactorhourly'
-wheelurl = 'http://localhost:8000/wheeledhourly'
 bmsurl = 'http://localhost:8000/bmsgridhourly'
 thrmlstsurl = 'http://localhost:8000/thermalstatus'
 peakqurl = 'http://localhost:8000/peakquarter'
@@ -37,6 +39,12 @@ demand = 'http://localhost:8000/demandvsgrid'
 ltourl = 'http://localhost:8000/ltohourly'
 dgurl = 'http://localhost:8000/dghourly'
 dgqurl = 'http://localhost:8000/dgquarterly'
+
+def ioehr():
+    print("Ioe hourly")
+    upsres = requests.get(ioehurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
 
 def cltfn():
     print("Client Power")
@@ -110,6 +118,12 @@ def invhr():
     print(upsres.json())
     time.sleep(10)
 
+def invhr2():
+    print("Inverter hourly2")
+    upsres = requests.get(invurl2, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
 def elecdy():
     print("Electric Day wise")
     upsres = requests.get(elcurl, headers=headers)
@@ -152,6 +166,12 @@ def wheel():
     print(wheelres.json())
     time.sleep(10)
 
+def wheel2():
+    print("WHEELED")
+    wheelres = requests.get(wheelurl2, headers=headers)
+    print(wheelres.json())
+    time.sleep(10)
+
 def griddaily():
     print("GRID DAILY")
     griddres = requests.get(griddurl, headers=headers)
@@ -162,12 +182,6 @@ def bms():
     print("BMS GRID")
     bmsres = requests.get(bmsurl, headers=headers)
     print(bmsres.json())
-    time.sleep(10)
-   
-def wheel():
-    print("WHEELED-IN")
-    wheelres = requests.get(wheelurl, headers=headers)
-    print(wheelres.json())
     time.sleep(10)
    
 def peak():
@@ -237,7 +251,7 @@ def demand():
     time.sleep(10)
 
 
-function_names = ['cltfn']
+function_names = ['ioehr']
     #'thermalq','grid','bms','peak','ltoHour','griddaily','peakq','thermal','wheel','roof','thermalstatus','roofd','peakd','demandp']
 
 while True:
