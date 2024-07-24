@@ -12,22 +12,22 @@ while True:
     
     emscur = emsdb.cursor()
 
-    # emscur.execute("SELECT polledTime FROM EMS.fiveMinData where date(polledTime) = curdate() and wind >= 0 order by polledTime desc limit 1;")
+    emscur.execute("SELECT polledTime FROM EMS.fiveMinData where date(polledTime) = curdate() and wind >= 0 order by polledTime desc limit 1;")
 
-    # wind_time_res2 = emscur.fetchall()
+    wind_time_res = emscur.fetchall()
 
-    # if len(wind_time_res2) !=0:
-    #     wind_time2 = wind_time_res2[0][0]
+    if len(wind_time_res) !=0:
+        wind_time = wind_time_res[0][0]
 
-    #     print("Last Wheeled Time",wind_time2)
+        print("Last Wind Time",wind_time)
         
 
-    #     emscur.execute(f"SELECT polledTime,wheeled2 FROM EMS.minWiseData where polledTime >= '{wind_time2}'")
+        emscur.execute(f"SELECT polledTime,wind FROM EMS.minWiseData where polledTime >= '{wind_time}'")
     
-    # else:
-    #     emscur.execute(f"SELECT polledTime,wheeled2 FROM EMS.minWiseData where polledTime >= curdate()")
+    else:
+        emscur.execute(f"SELECT polledTime,wind FROM EMS.minWiseData where polledTime >= curdate()")
 
-    # wind_res2 = emscur.fetchall()
+    wind_res = emscur.fetchall()
 
     #------------------------------------------------------------------------------------------------------------
 
@@ -357,6 +357,95 @@ while True:
             else:
                 dict_wheel2[polledTime] = [wheel]
     
+    def segFiveMinWind(polledTime,wind):
+        polledTime = str(polledTime)
+        mint = (int(polledTime[14:16]))
+
+        if mint >=0 and mint <5:
+            polledTime = polledTime[0:14]+"00:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+
+        if mint >=5 and mint < 10:
+            polledTime = polledTime[0:14]+"05:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+        
+        if mint >=10 and mint <15:
+            polledTime = polledTime[0:14]+"10:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+        
+        
+        if mint >=15 and mint <20:
+            polledTime = polledTime[0:14]+"15:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+                
+        if mint >=20 and mint <25:
+            polledTime = polledTime[0:14]+"20:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+                
+        if mint >=25 and mint <30:
+            polledTime = polledTime[0:14]+"25:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+        
+        if mint >=30 and mint <35:
+            polledTime = polledTime[0:14]+"30:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+        
+        if mint >=35 and mint <40:
+            polledTime = polledTime[0:14]+"35:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+        
+        if mint >=40 and mint <45:
+            polledTime = polledTime[0:14]+"40:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+        
+        if mint >=45 and mint <50:
+            polledTime = polledTime[0:14]+"45:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+        
+        if mint >=50 and mint <55:
+            polledTime = polledTime[0:14]+"50:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+                
+        if mint >=55 and mint <60:
+            polledTime = polledTime[0:14]+"55:00"
+            if polledTime in dict_wind.keys():
+                dict_wind[polledTime].append(wind)
+            else:
+                dict_wind[polledTime] = [wind]
+    
     for i in wheeled_res2:
         if i[1] != None:
             segFiveMinWheel2(i[0],i[1])
@@ -368,6 +457,10 @@ while True:
     for i in grid_res:
         if i[1] != None:   
             segFiveMinGrid(i[0],i[1])
+    
+    for i in wind_res:
+        if i[1] != None:  
+            segFiveMinWind(i[0],i[1])
 
     for i in dict_wheel2.keys():
         val = (i,round(sum(dict_wheel2[i]),2))
@@ -413,5 +506,21 @@ while True:
             emscur.execute(sql,val)
             emsdb.commit()
             print("Grid Updated")
+
+        
+    for i in dict_wind.keys():
+        val = (i,round(sum(dict_wind[i]),2))
+        sql = "INSERT INTO EMS.fiveMinData(polledTime,wind) values(%s,%s)"
+        print(val)
+        try:
+            emscur.execute(sql,val)
+            emsdb.commit()
+            print("Wind inserted")
+        except mysql.connector.errors.IntegrityError:
+            sql = "UPDATE EMS.fiveMinData SET wind = %s WHERE polledTime = %s"
+            val = (round(sum(dict_wind[i]),2),i)
+            emscur.execute(sql,val)
+            emsdb.commit()
+            print("Wind Updated")
 
     time.sleep(100)

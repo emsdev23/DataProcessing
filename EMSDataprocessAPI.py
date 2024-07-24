@@ -9,7 +9,7 @@ import json
 app = Flask(__name__)
 
 bmshost = '121.242.232.151'
-awshost = '43.205.196.66'
+awshost = '3.111.70.53'
 emshost = '121.242.232.211'
 
 def check_authentication(token):
@@ -17,6 +17,74 @@ def check_authentication(token):
     valid_token = "VKOnNhH2SebMU6S"
     return token == valid_token
 
+@app.route('/windHourly', methods = ['GET'])
+def windHourly():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            awsdb = mysql.connector.connect(
+                        host=awshost,
+                        user="emsroot",
+                        password="22@teneT",
+                        database='EMS',
+                        port=3307
+                        )
+            
+            bmsdb = mysql.connector.connect(
+                        host=bmshost,
+                        user="emsrouser",
+                        password="emsrouser@151",
+                        database='bmsmgmtprodv13',
+                        port=3306
+                        )
+            bmscur = bmsdb.cursor()
+            awscur = awsdb.cursor()
+
+            windDict = {}
+
+            bmscur.execute("""SELECT FROM_UNIXTIME(otpmgndetailspolledtimestamp) as polledTime,otpmgndetailsactivepower/60 as Energy  
+                FROM bmsmgmtprodv13.otpmgndetails where date(FROM_UNIXTIME(otpmgndetailspolledtimestamp)) = curdate()
+                and otpmgndetailsactivepower > 0;""")
+            
+            res = bmscur.fetchall()
+
+            def HourSummarize(polledTime,Energy):
+                polledTime = str(polledTime)[0:14]
+                
+                if polledTime in windDict.keys():
+                    windDict[polledTime] += Energy
+                else:
+                    windDict[polledTime] = Energy
+
+            for i in res:
+                if i[1] != None:
+                    Energy = i[1] * 0.60
+                    HourSummarize(i[0],Energy)
+
+            for i in windDict.keys():
+                val = (round(windDict[i],2),i)
+                sql = "INSERT INTO EMS.windHourly(Energy,polledTime) VALUES(%s,%s)"
+                try:
+                    awscur.execute(sql,val)
+                    awsdb.commit()
+                    print(val)
+                    print("Wind Hourly inserted")
+                except mysql.connector.errors.IntegrityError:
+                    sql = "UPDATE EMS.windHourly set Energy = %s where polledTime = %s"
+                    awscur.execute(sql,val)
+                    awsdb.commit()
+                    print(val)
+                    print("Wind Hourly updated")
+        except:
+            return {"error":"mysql connection"}
+
+        data = {"message":"Wind hourly Updated"}
+        return jsonify(data), 200
+    
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
 
 @app.route('/ioeHourly', methods = ['GET'])
 def ioeHourly():
@@ -728,12 +796,12 @@ def clientPower():
     if token and check_authentication(token):
         try:
             bmsdb =  mysql.connector.connect(
-            host=bmshost,
-            user="emsrouser",
-            password="emsrouser@151",
-            database='bmsmgmtprodv13',
-            port=3306
-            )
+                host=bmshost,
+                user="emsrouser",
+                password="emsrouser@151",
+                database='bmsmgmtprodv13',
+                port=3306
+                )
 
             awsdb = mysql.connector.connect(
                         host=awshost,
@@ -2692,7 +2760,7 @@ def UPSHourly():
         emscur = emsdb.cursor()
         awscur = awsdb.cursor()
 
-        emscur.execute("""select upsbatterystatus,upschargingenergy,upsdischargingenergy,pack_usable_soc,received_time from EMS.EMSUPSBattery where date(received_time) = curdate() and date()""")
+        emscur.execute("""select upsbatterystatus,upschargingenergy,upsdischargingenergy,pack_usable_soc,received_time from EMS.EMSUPSBattery where date(received_time) = curdate()""")
 
         results = emscur.fetchall()
         chgdict = {}
@@ -2761,12 +2829,12 @@ def UPSHourly():
             cummlativeDchg(i,max(dchgmin[i]))
         
         for i in range(1,len(chglist)):
-            if chglist[i][1]-chglist[i-1][1] > 0 and chglist[i][1]-chglist[i-1][1] <= 1:
-                summarizeHourChg(chglist[i][0],chglist[i][1]-chglist[i-1][1])
+            if chglist[i][1]-chglist[i-1][1] > 0 and chglist[i][1]-chglist[i-1][1] <= 1000:
+                summarizeHourChg(chglist[i][0],(chglist[i][1]-chglist[i-1][1])/1000)
 
         for i in range(1,len(dchglist)):
-            if dchglist[i][1]-dchglist[i-1][1] > 0 and dchglist[i][1]-dchglist[i-1][1] <= 1:
-                summarizeHourDchg(dchglist[i][0],dchglist[i][1]-dchglist[i-1][1])
+            if dchglist[i][1]-dchglist[i-1][1] > 0 and dchglist[i][1]-dchglist[i-1][1] <= 1000:
+                summarizeHourDchg(dchglist[i][0],(dchglist[i][1]-dchglist[i-1][1])/1000)
         
         # for i in dchgmin.keys():
         #     summarizeHourDchg(i,max(dchgmin[i]))
@@ -3303,7 +3371,7 @@ def wheeledHourlyph1():
                 hour = str(polledTime)[0:13] + ":00:00"
                 hourly_wheeled[hour] = 0
 
-        bmscur.execute("SELECT createdTime,ctsedogenergy FROM bmsmgmtprodv13.ctsedogreadings where date(createdTime) = date(curdate()-1) and ctsedogdeviceid =1;")
+        bmscur.execute("SELECT createdTime,ctsedogenergy FROM bmsmgmtprodv13.ctsedogreadings where date(createdTime) = curdate() and ctsedogdeviceid =1;")
 
         res = bmscur.fetchall()
 
@@ -3704,7 +3772,7 @@ def gridHourlyl():
     
         processcur = processeddb.cursor()
 
-        processcur.execute("""select FLOOR(acmeterenergy),polledTime from bmsmgmt_olap_prod_v13.MVPPolling where mvpnum in ("MVP1","MVP2","MVP3","MVP4") and Date(polledTime) = date(curdate()-5);""")
+        processcur.execute("""select FLOOR(acmeterenergy),polledTime from bmsmgmt_olap_prod_v13.MVPPolling where mvpnum in ("MVP1","MVP2","MVP3","MVP4") and Date(polledTime) = curdate();""")
 
         data = processcur.fetchall()
         minute_list =[]

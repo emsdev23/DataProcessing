@@ -277,7 +277,7 @@ def WdMin():
             print("Last Wind Time",wind_time)
 
             procur.execute(f"""SELECT FROM_UNIXTIME(otpmgndetailspolledtimestamp) as polledTime,otpmgndetailsactivepower/60 as Energy  
-                    FROM bmsmgmtprodv13.otpmgndetails where date(FROM_UNIXTIME(otpmgndetailspolledtimestamp)) >= '{wind_time}'
+                    FROM bmsmgmtprodv13.otpmgndetails where FROM_UNIXTIME(otpmgndetailspolledtimestamp) >= '{wind_time}'
                     and otpmgndetailsactivepower > 0""")
             wind_res = procur.fetchall()
         
@@ -306,13 +306,13 @@ def WdMin():
                 emsdb.commit()
                 print("Wind min Updated")
 
-        for i in range( 1,len(wind_res)):
-            WindMinSeg(wind_res[i][0],(wind_res[i][1]-wind_res[i-1][1])*1000)
+        for i in wind_res:
+            WindMinSeg(i[0],i[1])
         
         procur.close()
         emscur.close()
 
-        data = {"message":"Wheeled/Grid Min"}
+        data = {"message":"Wind Min"}
         return jsonify(data), 200
     else:
         return jsonify({'error': 'Unauthorized'}), 401
