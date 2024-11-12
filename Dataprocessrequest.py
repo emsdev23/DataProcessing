@@ -4,6 +4,11 @@ import time
 
 headers = {'Authorization': 'VKOnNhH2SebMU6S'}
 
+gddurlp = 'http://localhost:8000/gridDaywiseprev'
+gddurl = 'http://localhost:8000/gridDaywise'
+kvaurl = 'http://localhost:8000/kvavskwh'
+winmurl = 'http://localhost:8000/windEnergyHourly'
+winhurl = 'http://localhost:8000/windHourly'
 ioehurl = 'http://localhost:8000/ioeHourly'
 clturl = 'http://localhost:8000/clientpower'
 mxpurl = 'http://localhost:8000/maxpeakjmp'
@@ -39,6 +44,36 @@ demand = 'http://localhost:8000/demandvsgrid'
 ltourl = 'http://localhost:8000/ltohourly'
 dgurl = 'http://localhost:8000/dghourly'
 dgqurl = 'http://localhost:8000/dgquarterly'
+
+def gddphr():
+    print("Grid Day Wise")
+    upsres = requests.get(gddurlp, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def gddhr():
+    print("Grid Day Wise")
+    upsres = requests.get(gddurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def kvahr():
+    print("KVA vs KWh")
+    upsres = requests.get(kvaurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def winmhr():
+    print("Wind energy hourly")
+    upsres = requests.get(winmurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def winhr():
+    print("Wind hourly")
+    upsres = requests.get(winhurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
 
 def ioehr():
     print("Ioe hourly")
@@ -251,9 +286,11 @@ def demand():
     time.sleep(10)
 
 
-function_names = ['ioehr']
-    #'thermalq','grid','bms','peak','ltoHour','griddaily','peakq','thermal','wheel','roof','thermalstatus','roofd','peakd','demandp']
+function_names = ['wheel','wheel2']
 
+# 'winmhr','ltohr','grid','winhr','ioehr','wheel2','invhr2','wheel','maxpjf','invhr','tstemp','elecdy','griddaily','dgqtr','dghr','upshr','thermal','roof','dghour','thermalq','bms','peak','peakq','power','thermalstatus','roofd','peakd'
+
+# 'cltfn','ablktf','bblktf','cblktf','dblk3f','dblk7f','mlcpgf','eblk9f','eblk1f'
 while True:
     for name in function_names:
         if name in globals() and callable(globals()[name]):

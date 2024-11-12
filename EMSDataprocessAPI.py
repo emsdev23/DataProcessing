@@ -17,6 +17,275 @@ def check_authentication(token):
     valid_token = "VKOnNhH2SebMU6S"
     return token == valid_token
 
+
+@app.route('/gridDaywiseprev', methods = ['GET'])
+def gridDaywiseprev():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            awsdb = mysql.connector.connect(
+                host="3.111.70.53",
+                user="emsroot",
+                password="22@teneT",
+                database='EMS',
+                port=3307
+            )
+
+            bmsdb =  mysql.connector.connect(
+                        host='121.242.232.151',
+                        user="emsrouser",
+                        password="emsrouser@151",
+                        database='bmsmgmt_olap_prod_v13',
+                        port=3306
+                        )
+            
+            awscur = awsdb.cursor()
+            bmscur = bmsdb.cursor()
+            bmscur.execute("""SELECT DATE_FORMAT(polledTime, '%Y-%m-%d %H:%i:00') AS minute,
+                        SUM(CASE WHEN mvpnum = 'MVP1' THEN ROUND(acmeterenergy) ELSE 0 END) +
+                        SUM(CASE WHEN mvpnum = 'MVP2' THEN ROUND(acmeterenergy) ELSE 0 END) +
+                        SUM(CASE WHEN mvpnum = 'MVP3' THEN ROUND(acmeterenergy) ELSE 0 END) +
+                        SUM(CASE WHEN mvpnum = 'MVP4' THEN ROUND(acmeterenergy) ELSE 0 END) AS total_energy
+                    FROM bmsmgmt_olap_prod_v13.MVPPolling
+                    WHERE DATE(polledTime) = date_sub(curdate(),interval 1 day)
+                    AND mvpnum IN ('MVP1', 'MVP2', 'MVP3', 'MVP4')
+                    GROUP BY minute ORDER BY minute;""")
+
+            data = bmscur.fetchall()
+
+            minWise = {}
+
+            if len(data) > 0:
+
+                for i in data:
+                    polledDate = str(i[0])[0:10]
+                    if i[1] > 0:
+                        if polledDate in minWise.keys():
+                            minWise[polledDate].append(i[1])
+                        else:
+                            minWise[polledDate] = [i[1]]
+
+                for i in minWise.keys():
+                    grid = (minWise[i][-1]-minWise[i][0])/1000
+
+                    print('first value',minWise[i][0])
+                    print('last value',minWise[i][-1])
+                    if grid < 0:
+                        for j in minWise[i]:
+                            grid = (minWise[i][-1] - j)/1000
+                            if grid > 0:
+                                if grid < 80000:
+                                    break
+                    
+                    if grid > 80000:
+                        rev = minWise[i][::-1]
+                        for j in rev:
+                            grid = (j - minWise[i][0])/1000
+                            if grid < 80000:
+                                if grid > 0:
+                                    break
+                    
+                    if grid == 0:
+                        for j in minWise[i]:
+                            grid = (minWise[i][-1] - j)/1000
+                            if grid > 0 and grid < 80000:
+                                break
+
+                    val = (grid,i)
+                    sql = "INSERT INTO EMS.GridDayWise(Energy,polledDate) VALUES(%s,%s)"
+                    try:
+                        print(val)
+                        awscur.execute(sql,val)
+                        awsdb.commit()
+                        print("Grid daily inserted")
+                    except mysql.connector.errors.IntegrityError:
+                        sql = "UPDATE EMS.GridDayWise SET Energy = %s where polledDate = %s"
+                        print(val)
+                        awscur.execute(sql,val)
+                        awsdb.commit()
+                        print("Grid daily updated")
+                
+        except:
+            return {"error":"mysql connection"}
+
+        data = {"message":"Grid Daywise Updated"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+
+@app.route('/gridDaywise', methods = ['GET'])
+def gridDaywise():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            awsdb = mysql.connector.connect(
+                host="3.111.70.53",
+                user="emsroot",
+                password="22@teneT",
+                database='EMS',
+                port=3307
+            )
+
+            bmsdb =  mysql.connector.connect(
+                        host='121.242.232.151',
+                        user="emsrouser",
+                        password="emsrouser@151",
+                        database='bmsmgmt_olap_prod_v13',
+                        port=3306
+                        )
+            
+            awscur = awsdb.cursor()
+            bmscur = bmsdb.cursor()
+            bmscur.execute("""SELECT DATE_FORMAT(polledTime, '%Y-%m-%d %H:%i:00') AS minute,
+                        SUM(CASE WHEN mvpnum = 'MVP1' THEN ROUND(acmeterenergy) ELSE 0 END) +
+                        SUM(CASE WHEN mvpnum = 'MVP2' THEN ROUND(acmeterenergy) ELSE 0 END) +
+                        SUM(CASE WHEN mvpnum = 'MVP3' THEN ROUND(acmeterenergy) ELSE 0 END) +
+                        SUM(CASE WHEN mvpnum = 'MVP4' THEN ROUND(acmeterenergy) ELSE 0 END) AS total_energy
+                    FROM bmsmgmt_olap_prod_v13.MVPPolling
+                    WHERE DATE(polledTime) = curdate()
+                    AND mvpnum IN ('MVP1', 'MVP2', 'MVP3', 'MVP4')
+                    GROUP BY minute ORDER BY minute;""")
+
+            data = bmscur.fetchall()
+
+            minWise = {}
+
+            if len(data) > 0:
+
+                for i in data:
+                    polledDate = str(i[0])[0:10]
+                    if i[1] > 0:
+                        if polledDate in minWise.keys():
+                            minWise[polledDate].append(i[1])
+                        else:
+                            minWise[polledDate] = [i[1]]
+
+                for i in minWise.keys():
+                    grid = (minWise[i][-1]-minWise[i][0])/1000
+
+                    print('first value',minWise[i][0])
+                    print('last value',minWise[i][-1])
+                    if grid < 0:
+                        for j in minWise[i]:
+                            grid = (minWise[i][-1] - j)/1000
+                            if grid > 0:
+                                if grid < 80000:
+                                    break
+                    
+                    if grid > 80000:
+                        rev = minWise[i][::-1]
+                        for j in rev:
+                            grid = (j - minWise[i][0])/1000
+                            if grid < 80000:
+                                if grid > 0:
+                                    break
+                    
+                    if grid == 0:
+                        for j in minWise[i]:
+                            grid = (minWise[i][-1] - j)/1000
+                            if grid > 0 and grid < 80000:
+                                break
+
+                    val = (grid,i)
+                    sql = "INSERT INTO EMS.GridDayWise(Energy,polledDate) VALUES(%s,%s)"
+                    try:
+                        print(val)
+                        awscur.execute(sql,val)
+                        awsdb.commit()
+                        print("Grid daily inserted")
+                    except mysql.connector.errors.IntegrityError:
+                        sql = "UPDATE EMS.GridDayWise SET Energy = %s where polledDate = %s"
+                        print(val)
+                        awscur.execute(sql,val)
+                        awsdb.commit()
+                        print("Grid daily updated")
+                
+        except:
+            return {"error":"mysql connection"}
+
+        data = {"message":"Grid Daywise Updated"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+
+@app.route('/windEnergyHourly', methods = ['GET'])
+def windEnergyHourly():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        try:
+            awsdb = mysql.connector.connect(
+                host="3.111.70.53",
+                user="emsroot",
+                password="22@teneT",
+                database='EMS',
+                port=3307
+            )
+
+            bmsdb =  mysql.connector.connect(
+                        host='121.242.232.151',
+                        user="emsrouser",
+                        password="emsrouser@151",
+                        database='bmsmgmtprodv13',
+                        port=3306
+                        )
+            
+            awscur = awsdb.cursor()
+            bmscur = bmsdb.cursor()
+
+            windDict = {}
+
+            bmscur.execute("""SELECT from_unixtime(otpmgndetailspolledtimestamp),otpmgndetailstotalproduction*0.60
+                            FROM bmsmgmtprodv13.otpmgndetails where
+                            date(from_unixtime(otpmgndetailspolledtimestamp)) = curdate();""")
+            
+            res = bmscur.fetchall()
+
+            def WindProcess(polledTime,Energy):
+                polledTime = str(polledTime)[0:14]+"00:00"
+                if Energy >=0:
+                    if polledTime in windDict.keys():
+                        windDict[polledTime] += Energy
+                    else:
+                        windDict[polledTime] = Energy
+
+            for i in range(1,len(res)):
+                WindProcess(res[i][0],(res[i][1]-res[i-1][1]))
+
+            for i in windDict.keys():
+                val = (windDict[i],i)
+                sql = "INSERT INTO EMS.windEnergyHourly(Energy,polledTime) VALUES(%s,%s)"
+                try:
+                    awscur.execute(sql,val)
+                    awsdb.commit()
+                    print(val)
+                    print("Wind Meter Energy inserted")
+                except mysql.connector.errors.IntegrityError:
+                    sql = "UPDATE EMS.windEnergyHourly SET Energy = %s WHERE polledTime = %s"
+                    awscur.execute(sql,val)
+                    awsdb.commit()
+                    print(val)
+                    print("Wind Meter Energy updated")
+            awscur.close()
+            bmscur.close()
+            awsdb.close()
+            bmsdb.close()
+        except:
+            return {"error":"mysql connection"}
+
+        data = {"message":"Wind hourly Updated"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+
 @app.route('/windHourly', methods = ['GET'])
 def windHourly():
     token = request.headers.get('Authorization')
@@ -45,18 +314,18 @@ def windHourly():
             windDict = {}
 
             bmscur.execute("""SELECT FROM_UNIXTIME(otpmgndetailspolledtimestamp) as polledTime,otpmgndetailsactivepower/60 as Energy  
-                FROM bmsmgmtprodv13.otpmgndetails where date(FROM_UNIXTIME(otpmgndetailspolledtimestamp)) = curdate()
+                FROM bmsmgmtprodv13.otpmgndetails where date(FROM_UNIXTIME(otpmgndetailspolledtimestamp)) >= '2024-07-01'
                 and otpmgndetailsactivepower > 0;""")
             
             res = bmscur.fetchall()
 
             def HourSummarize(polledTime,Energy):
                 polledTime = str(polledTime)[0:14]
-                
-                if polledTime in windDict.keys():
-                    windDict[polledTime] += Energy
-                else:
-                    windDict[polledTime] = Energy
+                if Energy >= 0:
+                    if polledTime in windDict.keys():
+                        windDict[polledTime] += Energy
+                    else:
+                        windDict[polledTime] = Energy
 
             for i in res:
                 if i[1] != None:
@@ -77,6 +346,10 @@ def windHourly():
                     awsdb.commit()
                     print(val)
                     print("Wind Hourly updated")
+            awscur.close()
+            bmscur.close()
+            awsdb.close()
+            bmsdb.close()
         except:
             return {"error":"mysql connection"}
 
@@ -2689,6 +2962,11 @@ def electricDay():
         for row in result:
             DateSummmarize(row[0], row[1], row[2])
         
+        total_client_energy = 0
+        total_energy = 0
+        total_Incomer_energy = 0
+        total_utility_energy = 0
+
         for i in Client.keys():
             total_client_energy = Client[i]
             polledDate = i
@@ -3189,49 +3467,74 @@ def wheeledHourlyph2():
     print(token)
     
     if token and check_authentication(token):
+        radhr = {}
+        hourly_wheeled= {}
+        wheeledDict = {}
 
-        bmsdb = mysql.connector.connect(
-                host=bmshost,
-                user="emsrouser",
-                password="emsrouser@151",
-                database='bmsmgmtprodv13',
-                port=3306
-            )
-        emsdb = mysql.connector.connect(
-                            host=awshost,
+        try:
+            emsdb = mysql.connector.connect(
+                            host="3.111.70.53",
                             user="emsroot",
                             password="22@teneT",
                             database='EMS',
                             port=3307
                         )
+        
+            processeddb = mysql.connector.connect(
+                        host="121.242.232.151",
+                        user="emsrouser",
+                        password="emsrouser@151",
+                        database='bmsmgmtprodv13',
+                        port=3306
+                        )
 
-        emscur = emsdb.cursor()
-        bmscur = bmsdb.cursor()
-
-        radhr = {}
-        hourly_wheeled= {}
+            emscur = emsdb.cursor()
+            proscur = processeddb.cursor()
+        
+        except Exception as ex:
+            print(ex)
 
         def Hourlywheeled(polledTime,Energy):
+            # print(polledTime,Energy)
             hr = int(str(polledTime)[11:13])
             if hr >= 7 and hr <= 18:
                 hour = str(polledTime)[0:13] + ":00:00"
-                if hour in hourly_wheeled.keys():
-                    if Energy >=0 and Energy <=100:
-                        hourly_wheeled[hour] += Energy
+                if hour in wheeledDict.keys():
+                    if Energy >=0:
+                        wheeledDict[hour].append(Energy)
                 else:
-                    if Energy>=0 and Energy <=100:
-                        hourly_wheeled[hour] = Energy
+                    if Energy>=0:
+                        wheeledDict[hour] = [Energy]
             else:
                 hour = str(polledTime)[0:13] + ":00:00"
-                hourly_wheeled[hour] = 0
+                wheeledDict[hour] = [0]
+
+        proscur.execute("SELECT createdTime,ctsedogenergy FROM bmsmgmtprodv13.ctsedogreadings where date(createdTime) = curdate() and ctsedogdeviceid =2;")
+
+        wheeled_res = proscur.fetchall()
+        for i in wheeled_res:
+            Hourlywheeled(i[0],i[1]*1000)
+
+        for i in wheeledDict.keys():
+            if len(wheeledDict[i]) > 0:
+                Energy = wheeledDict[i][-1]-wheeledDict[i][0]
+                if Energy < 0:
+                    print(Energy)
+                    for j in range(2,len(wheeledDict[i])):
+                        print(-abs(j))
+                        Energy = wheeledDict[i][-abs(j)]-wheeledDict[i][0]
+                        print(Energy)
+                        if Energy > 0 and Energy <= 5000:
+                            break
+                if Energy >= 5000:
+                    for j in range(1,len(wheeledDict[i])):
+                        Energy = wheeledDict[i][-1]-wheeledDict[i][j]
+                        if Energy < 5000 and Energy >= 0:
+                            break
+                hourly_wheeled[i] = Energy
+            else:
+                hourly_wheeled[i] = 0
         
-        emscur.execute("SELECT metertimestamp,meterenergy FROM EMS.EMSMeterData where date(metertimestamp) = curdate() and meterdeviceid = 2;")
-
-        wheeled_res = emscur.fetchall()
-
-        for i in range(1,len(wheeled_res)):
-            Hourlywheeled(wheeled_res[i][0],(wheeled_res[i][1]-wheeled_res[i-1][1])*1000)
-
         for i in hourly_wheeled.keys():
             sql = "INSERT INTO WheeledHourlyph2(polledTime,Energy) VALUES(%s,%s)"
             val = (i,hourly_wheeled[i])
@@ -3254,8 +3557,8 @@ def wheeledHourlyph2():
             else:
                 radhr[hour] = [irrad]
 
-        bmscur.execute("""SELECT createdTime,CAST(ctsedwmsirradiation AS DECIMAL(18, 2)) FROM bmsmgmtprodv13.ctsedwmsreadings where date(createdTime) = curdate();""")
-        result = bmscur.fetchall()          
+        proscur.execute("""SELECT createdTime,CAST(ctsedwmsirradiation AS DECIMAL(18, 2)) FROM bmsmgmtprodv13.ctsedwmsreadings where date(createdTime) = curdate();""")
+        result = proscur.fetchall()          
 
         for row in result:
             # print(row[0],row[1])
@@ -3270,24 +3573,25 @@ def wheeledHourlyph2():
                 wmsirradiationkwh = Decimal(str(wmsirradiation_sum))
                 # print('irr',wmsirradiationkwh)
 
-                constant2 = Decimal('9447')
-                constant3 = Decimal('0.209')
+                constant1 = Decimal('0.755')
+                constant2 = Decimal('9702')
+                constant3 = Decimal('0.207')
 
                 def calculate_x():
                     month_multiplier = {
-                                    'january': 0.851,
-                                    'february': 0.836,
-                                    'march': 0.816,
-                                    'april': 0.818,
-                                    'may': 0.831,
-                                    'june': 0.795,
-                                    'july': 0.836,
-                                    'august': 0.808,
-                                    'september': 0.816,
-                                    'october': 0.805,
-                                    'november': 0.851,
-                                    'december': 0.861,
-                                    }
+                                        'january': 0.851,
+                                        'february': 0.836,
+                                        'march': 0.816,
+                                        'april': 0.818,
+                                        'may': 0.831,
+                                        'june': 0.795,
+                                        'july': 0.836,
+                                        'august': 0.808,
+                                        'september': 0.816,
+                                        'october': 0.805,
+                                        'november': 0.851,
+                                        'december': 0.861,
+                                        }
 
                                                             
                     current_month = datetime.now().strftime('%B').lower()
@@ -3302,7 +3606,7 @@ def wheeledHourlyph2():
                 x_multiplier = calculate_x()
                 # print('multi',x_multiplier)
 
-                expectedwmms = wmsirradiationkwh*constant2*constant3*Decimal(x_multiplier)
+                expectedwmms = (wmsirradiationkwh * constant1 * constant2 * constant3) - ((wmsirradiationkwh * constant1 * constant2 * constant3) * Decimal(x_multiplier))
                 expectedwmms = round(expectedwmms, 2)
                 # print('expwmms',expectedwmms)
 
@@ -3322,7 +3626,7 @@ def wheeledHourlyph2():
                     print("Wheeled in irradiation updated")
 
         emscur.close()
-        bmscur.close()
+        proscur.close()
         
         data = {"message":"WHEELED HOURLY"}
         return jsonify(data), 200
@@ -3338,47 +3642,72 @@ def wheeledHourlyph1():
     if token and check_authentication(token):
         radhr = {}
         hourly_wheeled= {}
+        wheeledDict = {}
 
-        bmsdb = mysql.connector.connect(
-                host=bmshost,
-                user="emsrouser",
-                password="emsrouser@151",
-                database='bmsmgmtprodv13',
-                port=3306
-            )
-        emsdb = mysql.connector.connect(
-                            host=awshost,
+        try:
+            emsdb = mysql.connector.connect(
+                            host="3.111.70.53",
                             user="emsroot",
                             password="22@teneT",
                             database='EMS',
                             port=3307
                         )
+        
+            processeddb = mysql.connector.connect(
+                        host="121.242.232.151",
+                        user="emsrouser",
+                        password="emsrouser@151",
+                        database='bmsmgmtprodv13',
+                        port=3306
+                        )
 
-        emscur = emsdb.cursor()
-        bmscur = bmsdb.cursor()
+            emscur = emsdb.cursor()
+            proscur = processeddb.cursor()
+        
+        except Exception as ex:
+            print(ex)
 
-        def HourSeg(polledTime,Energy):
+        def Hourlywheeled(polledTime,Energy):
+            # print(polledTime,Energy)
             hr = int(str(polledTime)[11:13])
             if hr >= 7 and hr <= 18:
                 hour = str(polledTime)[0:13] + ":00:00"
-                if hour in hourly_wheeled.keys():
-                    if Energy >=0 and Energy <=100:
-                        hourly_wheeled[hour] += Energy
+                if hour in wheeledDict.keys():
+                    if Energy >=0:
+                        wheeledDict[hour].append(Energy)
                 else:
-                    if Energy>=0 and Energy <=100:
-                        hourly_wheeled[hour] = Energy
+                    if Energy>=0:
+                        wheeledDict[hour] = [Energy]
             else:
                 hour = str(polledTime)[0:13] + ":00:00"
-                hourly_wheeled[hour] = 0
+                wheeledDict[hour] = [0]
 
-        bmscur.execute("SELECT createdTime,ctsedogenergy FROM bmsmgmtprodv13.ctsedogreadings where date(createdTime) = curdate() and ctsedogdeviceid =1;")
+        proscur.execute("SELECT createdTime,ctsedogenergy FROM bmsmgmtprodv13.ctsedogreadings where date(createdTime) = curdate() and ctsedogdeviceid =1;")
 
-        res = bmscur.fetchall()
+        wheeled_res = proscur.fetchall()
+        for i in wheeled_res:
+            Hourlywheeled(i[0],i[1]*1000)
 
-        for i in range(1,len(res)):
-            if res[i][1] != None and res[i-1][1] != None:
-                HourSeg(res[i][0],(res[i][1]-res[i-1][1])*1000)
-            
+        for i in wheeledDict.keys():
+            if len(wheeledDict[i]) > 0:
+                Energy = wheeledDict[i][-1]-wheeledDict[i][0]
+                if Energy < 0:
+                    print(Energy)
+                    for j in range(2,len(wheeledDict[i])):
+                        print(-abs(j))
+                        Energy = wheeledDict[i][-abs(j)]-wheeledDict[i][0]
+                        print(Energy)
+                        if Energy > 0 and Energy <= 5000:
+                            break
+                if Energy >= 5000:
+                    for j in range(1,len(wheeledDict[i])):
+                        Energy = wheeledDict[i][-1]-wheeledDict[i][j]
+                        if Energy < 5000 and Energy >= 0:
+                            break
+                hourly_wheeled[i] = Energy
+            else:
+                hourly_wheeled[i] = 0
+        
         for i in hourly_wheeled.keys():
             sql = "INSERT INTO WheeledHourly(polledTime,Energy) VALUES(%s,%s)"
             val = (i,hourly_wheeled[i])
@@ -3386,13 +3715,13 @@ def wheeledHourlyph1():
             try:
                 emscur.execute(sql,val)
                 emsdb.commit()
-                print("Wheeled hourly inserted")
+                print("Wheeled hourly phase inserted")
             except mysql.connector.errors.IntegrityError:
                 sql = "UPDATE WheeledHourly SET Energy = %s WHERE polledTime = %s"
                 val = (hourly_wheeled[i],i)
                 emscur.execute(sql,val)
                 emsdb.commit()
-                print("Wheeled hourly update")
+                print("Wheeled hourly phase 2 update")
 
         def HourSummmarize(irrad,Time):
             hour=str(Time)[0:13]+":00:00"
@@ -3401,8 +3730,8 @@ def wheeledHourlyph1():
             else:
                 radhr[hour] = [irrad]
 
-        bmscur.execute("""SELECT createdTime,CAST(ctsedwmsirradiation AS DECIMAL(18, 2)) FROM bmsmgmtprodv13.ctsedwmsreadings where date(createdTime) = curdate();""")
-        result = bmscur.fetchall()          
+        proscur.execute("""SELECT createdTime,CAST(ctsedwmsirradiation AS DECIMAL(18, 2)) FROM bmsmgmtprodv13.ctsedwmsreadings where date(createdTime) = curdate();""")
+        result = proscur.fetchall()          
 
         for row in result:
             # print(row[0],row[1])
@@ -3454,29 +3783,28 @@ def wheeledHourlyph1():
                 # print('expwmms',expectedwmms)
 
                 val = (wmsirradiationkwh,expectedwmms,i)
-                sql = "INSERT INTO EMS.WheeledHourly(irradiation,expectedEnergy,polledTime) values(%s,%s,%s)"
+                sql = "INSERT INTO EMS.WheeledHourlyph2(irradiation,expectedEnergy,polledTime) values(%s,%s,%s)"
                 try:
                     emscur.execute(sql,val)
                     emsdb.commit()
                     print(val)
                     print("Wheeled in irradiation inserted")
                 except mysql.connector.errors.IntegrityError:
-                    sql = "update EMS.WheeledHourly set irradiation = %s, expectedEnergy = %s where polledTime = %s"
+                    sql = "update EMS.WheeledHourlyph2 set irradiation = %s, expectedEnergy = %s where polledTime = %s"
                     val = (wmsirradiationkwh,expectedwmms,i)
                     print(val)
                     emscur.execute(sql,val)
                     emsdb.commit()
                     print("Wheeled in irradiation updated")
-
-        emscur.close()
         
+        emscur.close()
+        proscur.close()
         data = {"message":"WHEELED HOURLY"}
         return jsonify(data), 200
     else:
         return jsonify({'error': 'Unauthorized'}), 401
 
 
-    
 @app.route('/bmsgridhourly', methods = ['GET'])
 def bmsGridHourly():
     token = request.headers.get('Authorization')
@@ -3749,100 +4077,162 @@ def gridHourlyl():
     token = request.headers.get('Authorization')
     print(token)
 
-    emsdb = mysql.connector.connect(
-                    host=awshost,
-                    user="emsroot",
-                    password="22@teneT",
-                    database='EMS',
-                    port=3307
-                )
-    try:
-        processeddb = mysql.connector.connect(
-            host=bmshost,
-            user="bmsrouser6",
-            password="bmsrouser6@151U",
-            database='bmsmgmt_olap_prod_v13',
-           port=3306
-            )
-    except:
-         return {"error":"mysql connection"}
-
     if token and check_authentication(token):
-        emscur = emsdb.cursor()
-    
-        processcur = processeddb.cursor()
+        try:
+            emsdb = mysql.connector.connect(
+                host=awshost,
+                user="emsroot",
+                password="22@teneT",
+                database='EMS',
+                port=3307
+            )
+            processeddb = mysql.connector.connect(
+                host=bmshost,
+                user="bmsrouser6",
+                password="bmsrouser6@151U",
+                database='bmsmgmt_olap_prod_v13',
+                port=3306
+            )
+        except:
+            return {"error":"mysql connection"}
 
-        processcur.execute("""select FLOOR(acmeterenergy),polledTime from bmsmgmt_olap_prod_v13.MVPPolling where mvpnum in ("MVP1","MVP2","MVP3","MVP4") and Date(polledTime) = curdate();""")
+        if token and check_authentication(token):
+            emscur = emsdb.cursor()
+            bmscur = processeddb.cursor()
 
-        data = processcur.fetchall()
-        minute_list =[]
-        hour_dict = {}
-        fin_hour = {}
-        minWisedict = {}
+            bmscur.execute("""SELECT polledTime,mvpnum,round(acmeterenergy) FROM bmsmgmt_olap_prod_v13.MVPPolling 
+                            where date(polledTime) = curdate() and mvpnum = 'MVP1';""")
 
-        def minSeg(Energy,polledTime):
-            polled = str(polledTime)[0:17]+"00"
-            # print(Energy,polled)
+            mvp1res = bmscur.fetchall()
 
-            if Energy != None:
-                if polled in minWisedict.keys():
-                    minWisedict[polled] += Energy
+            bmscur.execute("""SELECT polledTime,mvpnum,round(acmeterenergy) FROM bmsmgmt_olap_prod_v13.MVPPolling 
+                            where date(polledTime) = curdate() and mvpnum = 'MVP2';""")
+
+            mvp2res = bmscur.fetchall()
+
+            bmscur.execute("""SELECT polledTime,mvpnum,round(acmeterenergy) FROM bmsmgmt_olap_prod_v13.MVPPolling 
+                            where date(polledTime) = curdate() and mvpnum = 'MVP3';""")
+
+            mvp3res = bmscur.fetchall()
+
+            bmscur.execute("""SELECT polledTime,mvpnum,round(acmeterenergy) FROM bmsmgmt_olap_prod_v13.MVPPolling 
+                            where date(polledTime) = curdate() and mvpnum = 'MVP4';""")
+
+            mvp4res = bmscur.fetchall()
+
+            mvp = {}
+            mvp1 = {}
+            mvp2 = {}
+            mvp3 = {}
+            mvp4 = {}
+
+            #------------------------------------MVP1--------------------------------------------------
+            def segMVP1(polledTime,Energy):
+                polledTime = str(polledTime)[0:14]+"00:00"
+                
+                if polledTime in mvp1.keys():
+                    mvp1[polledTime] += Energy
                 else:
-                    minWisedict[polled] = Energy
+                    mvp1[polledTime] = Energy
+
+            for i in range(1,len(mvp1res)):
+                if mvp1res[i][2] != None and mvp1res[i-1][2] != None:
+                    if mvp1res[i][2]-mvp1res[i-1][2] >= 0 and mvp1res[i][2]-mvp1res[i-1][2] <= 99999:
+                        segMVP1(mvp1res[i][0],mvp1res[i][2]-mvp1res[i-1][2])
+
+            #--------------------------------------MVP2-------------------------------------------------   
+            def segMVP2(polledTime,Energy):
+                polledTime = str(polledTime)[0:14]+"00:00"
+                
+                if polledTime in mvp2.keys():
+                    mvp2[polledTime] += Energy
+                else:
+                    mvp2[polledTime] = Energy
+
+            for i in range(1,len(mvp2res)):
+                if mvp2res[i][2] != None and mvp2res[i-1][2] != None:
+                    if mvp2res[i][2]-mvp2res[i-1][2] >= 0 and mvp2res[i][2]-mvp2res[i-1][2] <= 99999:
+                        segMVP2(mvp2res[i][0],mvp2res[i][2]-mvp2res[i-1][2])
+
+            #---------------------------------------MVP3-------------------------------------------------   
+            def segMVP3(polledTime,Energy):
+                polledTime = str(polledTime)[0:14]+"00:00"
+                
+                if polledTime in mvp3.keys():
+                    mvp3[polledTime] += Energy
+                else:
+                    mvp3[polledTime] = Energy
+
+            for i in range(1,len(mvp3res)):
+                if mvp3res[i][2] != None and mvp3res[i-1][2] != None:
+                    if mvp3res[i][2]-mvp3res[i-1][2] >= 0 and mvp3res[i][2]-mvp3res[i-1][2] <= 99999:
+                        segMVP3(mvp3res[i][0],mvp3res[i][2]-mvp3res[i-1][2])
+
+            #----------------------------------------MVP4-------------------------------------------------    
+            def segMVP4(polledTime,Energy):
+                polledTime = str(polledTime)[0:14]+"00:00"
+                
+                if polledTime in mvp4.keys():
+                    mvp4[polledTime] += Energy
+                else:
+                    mvp4[polledTime] = Energy
+
+            for i in range(1,len(mvp4res)):
+                if mvp4res[i][2] != None and mvp4res[i-1][2] != None:
+                    if mvp4res[i][2]-mvp4res[i-1][2] >= 0 and mvp4res[i][2]-mvp4res[i-1][2] <= 99999:
+                        segMVP4(mvp4res[i][0],mvp4res[i][2]-mvp4res[i-1][2])
         
-        def HourSeg(polledTime,Energy):
-            polled = polledTime[0:14]+"00:00"
+            for i in mvp1.keys():
+                if i in mvp.keys():
+                    mvp[i] += mvp1[i]
+                else:
+                    mvp[i] = mvp1[i]
             
-            if polled in hour_dict.keys():
-                hour_dict[polled].append(Energy)
-            else:
-                hour_dict[polled] = [Energy] 
+            for i in mvp2.keys():
+                if i in mvp.keys():
+                    mvp[i] += mvp2[i]
+                else:
+                    mvp[i] = mvp2[i]
             
-        for i in data:
-            # print("entry")
-            minSeg(i[0],i[1])
-        
-        for i in minWisedict.keys():
-            HourSeg(i,minWisedict[i])
-        
-        for j in hour_dict.keys():
-            li = hour_dict[j]
+            for i in mvp3.keys():
+                if i in mvp.keys():
+                    mvp[i] += mvp3[i]
+                else:
+                    mvp[i] = mvp3[i]
 
-            for i in range(1,len(li)):
-                energy = (li[i]-li[i-1])/1000
+            for i in mvp4.keys():
+                if i in mvp.keys():
+                    mvp[i] += mvp4[i]
+                else:
+                    mvp[i] = mvp4[i]
 
-                if energy > 0 and energy < 500:
-                    if j in fin_hour.keys():
-                        fin_hour[j].append(energy)
-                    else:
-                        fin_hour[j] = [energy]
-        
-        for i in fin_hour.keys():
-            val = (i,sum(fin_hour[i]))
-
-            sql = "INSERT INTO Gridhourly(polledTime,Energy) VALUES(%s,%s)"
-            # val = (i,hour_dict[i])
-            print(val)
-            try:
-                emscur.execute(sql,val)
-                emsdb.commit()
-                print("Grid hourly")
-            except mysql.connector.errors.IntegrityError:
-                sql = "UPDATE Gridhourly SET Energy = %s WHERE polledTime = %s"
-                val = (sum(fin_hour[i]),i)
+            for i in mvp.keys():
+                val = (i,mvp[i]/1000)
+                sql = "INSERT INTO Gridhourly(polledTime,Energy) VALUES(%s,%s)"
                 print(val)
-                emscur.execute(sql,val)
-                emsdb.commit()
-                print("Grid hourly")
+                try:
+                    emscur.execute(sql,val)
+                    emsdb.commit()
+                    print("Grid hourly")
+                except mysql.connector.errors.IntegrityError:
+                    sql = "UPDATE Gridhourly SET Energy = %s WHERE polledTime = %s"
+                    val = (mvp[i]/1000,i)
+                    print(val)
+                    emscur.execute(sql,val)
+                    emsdb.commit()
+                    print("Grid hourly")
 
-        
-        processcur.close()
-        emscur.close()          
-        data = {'message': 'GRID updated'}
-        return jsonify(data), 200
+            
+            bmscur.close()
+            emscur.close()  
+            processeddb.close()
+            emsdb.close()        
+            data = {'message': 'GRID updated'}
+            return jsonify(data), 200
     else:
         # Return an error response for unauthorized access
         return jsonify({'error': 'Unauthorized'}), 401
+    
 
 @app.route('/griddaily', methods = ['GET'])
 def gridDaily():
@@ -3918,7 +4308,7 @@ def peakHourly():
         #proscur = processeddb.cursor()
         emscur = emsdb.cursor()
         
-        emscur.execute("select totalApparentPower2,polledTime from bmsunprocessed_prodv13.hvacSchneider7230Polling WHERE date(polledTime) = curdate();")
+        emscur.execute("select totalApparentPower2,polledTime from bmsunprocessed_prodv13.hvacSchneider7230Polling WHERE date(polledTime) = curdate() and totalApparentPower2 <= 5000;")
 
         peakres = emscur.fetchall()
 
