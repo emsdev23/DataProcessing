@@ -18,6 +18,799 @@ def check_authentication(token):
     return token == valid_token
 
 
+@app.route('/windMonth', methods = ['GET'])
+def windMonth():
+    token = request.headers.get('Authorization')
+    print(token)
+    if token and check_authentication(token):
+        try:
+            awsdb = mysql.connector.connect(
+                            host="3.111.70.53",
+                            user="emsroot",
+                            password="22@teneT",
+                            database='',
+                            port=3307
+                        )
+                
+            awscur = awsdb.cursor()
+        except Exception as ex:
+            print(ex)
+            return {"error":"mysql Error"}
+        
+        windDict = {}
+
+        awscur.execute("SELECT polledDate,Energy FROM EMS.windDayWise where month(polledDate) = month(curdate());")
+        res = awscur.fetchall()
+
+        def MonthSeg(polledTime,Energy):
+            month = str(polledTime)[0:8]+'01'
+            if month in windDict.keys():
+                windDict[month] += Energy
+            else: 
+                windDict[month] = Energy
+
+        for i in res:
+            MonthSeg(i[0],i[1])
+        
+        for i in windDict.keys():
+            val = (windDict[i],i)
+            sql = "INSERT INTO EMS.windMonthWise(Energy,polledDate) VALUES(%s,%s)"
+            try:
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Wind month inserted")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE EMS.windMonthWise SET Energy = %s WHERE polledDate = %s"
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print(val)
+                print("Wind month updated")
+    
+        data = {"message":"Wind Month Wise Updated"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+
+@app.route('/windDayWise', methods = ['GET'])
+def windDayWise():
+    token = request.headers.get('Authorization')
+    print(token)
+    if token and check_authentication(token):
+        try:
+            awsdb = mysql.connector.connect(
+                host="3.111.70.53",
+                user="emsroot",
+                password="22@teneT",
+                database='EMS',
+                port=3307
+            )
+
+            bmsdb =  mysql.connector.connect(
+                        host='121.242.232.151',
+                        user="emsrouser",
+                        password="emsrouser@151",
+                        database='bmsmgmtprodv13',
+                        port=3306
+                        )
+            
+            awscur = awsdb.cursor()
+            bmscur = bmsdb.cursor()
+        except Exception as ex:
+            print(ex)
+            return {"error":"mysql Error"}
+        
+        windDict = {}
+
+        bmscur.execute("""SELECT from_unixtime(otpmgndetailspolledtimestamp),otpmgndetailstotalproduction
+                        FROM bmsmgmtprodv13.otpmgndetails where
+                        date(from_unixtime(otpmgndetailspolledtimestamp)) >= curdate()
+                        and otpmgndetailsactivepower >= 0;""")
+        
+        res = bmscur.fetchall()
+
+        if len(res) > 0:
+            for i in res:
+                polledDate = str(i[0])[0:10]
+                if polledDate in windDict.keys():
+                    windDict[polledDate].append(i[1])
+                else:
+                    windDict[polledDate] = [i[1]]
+
+        for i in windDict.keys():
+            Energy = windDict[i][-1] - windDict[i][0]
+
+            if Energy < 0:
+                li=windDict[i]
+                for j in li:
+                    Energy = windDict[i][-1] - j
+                    if Energy >= 0:
+                        break
+            
+            val = (Energy,i)
+            sql = "INSERT INTO EMS.windDayWise(Energy, polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Wind Energy day wise inserted")
+            except mysql.connector.errors.IntegrityError:
+                sql = "UPDATE EMS.windDayWise SET Energy = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("Wind Energy day wise updated")
+            
+        data = {"message":"Wind Day Wise Updated"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+@app.route('/ltoEnergy', methods = ['GET'])
+def ltoEnergy():
+    token = request.headers.get('Authorization')
+    print(token)
+    if token and check_authentication(token):
+        try:
+            emsdb = mysql.connector.connect(
+                    host="121.242.232.211",
+                    user="emsroot",
+                    password="22@teneT",
+                    database='',
+                    port=3306
+                )
+    
+            awsdb = mysql.connector.connect(
+                            host="3.111.70.53",
+                            user="emsroot",
+                            password="22@teneT",
+                            database='',
+                            port=3307
+                        )
+                
+            awscur = awsdb.cursor()
+                
+            emscur = emsdb.cursor()
+        except Exception as ex:
+            print(ex)
+            return {"error":"mysql Error"}
+        emscur.execute("SELECT dischargeON,dischargeOFF,recordid FROM EMS.ltoLogDchg where recordDate = curdate();")
+
+        dchgRes = emscur.fetchall()
+
+        if len(dchgRes) > 0:
+            for i in dchgRes:
+                if i[1] != None:
+                    awscur.execute(f"SELECT sum(Energy) FROM EMS.LTOMinWise where polledTime >= '{i[0]}' and polledTime <= '{i[1]}'")
+
+                    EnergyRes = awscur.fetchall()
+
+                    sql = "UPDATE EMS.ltoLogDchg SET Energy = %s WHERE recordid = %s"
+                    val = (EnergyRes[0][0],i[2])
+
+                    print(val)
+                    emscur.execute(sql,val)
+                    emsdb.commit()
+                    print("LTO Energy value inserted")
+        
+        else:
+            print("No discharge today")
+        data = {"message":"LTO Energy Updated"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+@app.route('/ioeEnergy', methods = ['GET'])
+def ioeEnergy():
+    token = request.headers.get('Authorization')
+    print(token)
+    if token and check_authentication(token):
+        try:
+            emsdb = mysql.connector.connect(
+                    host="121.242.232.211",
+                    user="emsroot",
+                    password="22@teneT",
+                    database='',
+                    port=3306
+                )
+    
+            awsdb = mysql.connector.connect(
+                            host="3.111.70.53",
+                            user="emsroot",
+                            password="22@teneT",
+                            database='',
+                            port=3307
+                        )
+                
+            awscur = awsdb.cursor()
+                
+            emscur = emsdb.cursor()
+        except Exception as ex:
+            print(ex)
+            return {"error":"mysql Error"}
+
+        emscur.execute("select dischargeON,dischargeOFF,recordId from EMS.ioePeakDchg where date(dischargeON) = curdate() order by recordId desc;")
+        
+        res = emscur.fetchall()
+
+        if len(res) > 0:
+            for i in res:
+                dchgON = i[0]
+                dchgOFF =  i[1]
+                recId = i[2]
+
+                if dchgOFF != None and dchgON != None:
+
+                    awscur.execute(f"""SELECT sum(Energyst1),sum(Energyst2),sum(Energyst3),sum(Energyst4),sum(Energyst5) 
+                            FROM EMS.ioeMinWise where polledTime >= '{dchgON}' and polledTime <= '{dchgOFF}';""")
+                    
+                    EnergyRes = awscur.fetchall()
+
+                    ioeEnergy = 0
+
+                    for i in EnergyRes:
+                        ioeEnergy = i[0]+i[1]+i[2]+i[3]+i[4]
+
+                    sql = "UPDATE EMS.ioePeakDchg SET Energy = %s WHERE recordId = %s"
+                    val = (ioeEnergy,recId)
+
+                    print(val)
+                    emscur.execute(sql,val)
+                    emsdb.commit()
+                    print("IOE Energy inserted")
+
+        awscur.close()
+        awsdb.close()
+        emscur.close()
+        emsdb.close()
+        data = {"message":"IOE Energy Updated"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+@app.route('/slotWiseCalculation', methods = ['GET'])
+def slotWiseCalculation():
+    token = request.headers.get('Authorization')
+    print(token)
+    if token and check_authentication(token):
+        try:
+            awsdb = mysql.connector.connect(
+                host="3.111.70.53",
+                user="emsroot",
+                password="22@teneT",
+                database='EMS',
+                port=3307
+            )
+            awscur = awsdb.cursor()
+        except Exception as ex:
+            print(ex)
+            return {"error":"mysql Error"}
+
+        awscur.execute("""select sum(c1totalConsumption),sum(c2totalConsumption),sum(c4totalConsumption),sum(c5totalConsumption),
+                            sum(c1windEnergy), sum(c2windEnergy), sum(c4windEnergy), sum(c5windEnergy),
+                            sum(c1wheeledEnergy), sum(c2wheeledEnergy), sum(c4wheeledEnergy), sum(c5wheeledEnergy),polledDate
+                            from EMS.SlotWiseEnergy where month(polledDate) = 10
+                            ;""")
+        
+        res = awscur.fetchall()
+
+        for i in res:
+            polledDate = i[12]
+
+            if i[0] != None and i[0] != 0:
+                c1con = i[0]
+            else:
+                c1con = 0
+            
+            if i[1] != None and i[1] != 0:
+                c2con = i[1]
+            else:
+                c2con = 0
+            
+            if i[2] != None and i[2] != 0:
+                c4con = i[2]
+            else:
+                c4con = 0
+            
+            if i[3] != None and i[3] != 0:
+                c5con = i[3]
+            else:
+                c5con = 0
+            
+            if i[4] != None and i[4] != 0:
+                c1win = i[4] - (i[4]*0.0436)
+            else:
+                c1win = 0
+            
+            if i[5] != None and i[5] != 0:
+                c2win = i[5] - (i[5]*0.0436)
+            else:
+                c2win = 0
+            
+            if i[6] != None and i[6] != 0:
+                c4win = i[6] - (i[6]*0.0436)
+            else:
+                c4win = 0
+
+            if i[7] != None and i[7] != 0:
+                c5win = i[7] - (i[7]*0.0436)
+            else:
+                c5win = 0
+
+            if i[8] != None and i[8] != 0:
+                c1whl = (i[8])-(i[8]*0.0306)
+            else:
+                c1whl = 0
+            
+            if i[9] != None and i[9] != 0:
+                c2whl = (i[9])-(i[9]*0.0306)
+            else:
+                c2whl = 0
+            
+            if i[10] != None and i[10] != 0:
+                c4whl = (i[10])-(i[10]*0.0306)
+            else:
+                c4whl = 0
+            
+            if i[11] != None and i[11] != 0:
+                c5whl = (i[11])-(i[11]*0.0306)
+            else:
+                c5whl = 0
+            
+            polledDate = str(polledDate)[0:8]+"01"
+            print(polledDate)
+            print()
+            print("c1 total consumption", c1con)
+            print("c1 wheeled energy",c1whl)
+            print("c1 wind energy",c1win)
+            print()
+            c1WhlRem = c1con - c1whl
+            print("Wheel 1 remainder",c1WhlRem)
+
+            c1WinRem = c1WhlRem - c1win
+            print("Wind 1 remainder",c1WinRem)
+
+            print()
+
+            print("c2 total consumption", c2con)
+            print("c2 wheeled energy",c2whl)
+            print("c2 wind energy",c2win)
+            print()
+            c2WhlRem = c2con - c2whl
+            print("Wheel 2 remainder",c2WhlRem)
+
+            c2WinRem = c2WhlRem - c2win
+            print("Wind 2 remainder",c2WinRem)
+
+            print()
+
+            print("c4 total consumption", c4con)
+            print("c4 wheeled energy",c4whl)
+            print("c4 wind energy",c4win)
+            print()
+            c4WhlRem = c4con - c4whl
+            print("Wheel 4 remainder",c4WhlRem)
+
+            c4WinRem = c4WhlRem - c4win
+            print("Wind 4 remainder",c4WinRem)
+
+            print()
+
+            print("c5 total consumption", c5con)
+            print("c5 wheeled energy",c5whl)
+            print("c5 wind energy",c5win)
+            print()
+            c5WhlRem = c5con - c5whl
+            print("Wheel 5 remainder",c5WhlRem)
+
+            c5WinRem = c5WhlRem - c5win
+            print("Wind 5 remainder",c5WinRem)
+
+            print()
+
+            val = (c1con,c1whl,c1win,c1WhlRem,c1WinRem,c2con,c2whl,c2win,c2WhlRem,c2WinRem,
+                c4con,c4whl,c4win,c4WhlRem,c4WinRem,c5con,c5whl,c5win,c5WhlRem,c5WinRem,polledDate)
+            try:
+                sql = """INSERT INTO EMS.slotWiseCalculation(c1Con,c1Wheeled,c1Wind,c1WhlRem,c1WindRem,
+                c2Con,c2Wheeled,c2Wind,c2WhlRem,c2WindRem,c4Con,c4Wheeled,c4Wind,c4WhlRem,c4WindRem,
+                c5Con,c5Wheeled,c5Wind,c5WhlRem,c5WindRem,polledDate) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
+
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("SlotWise Inserted")
+            except mysql.connector.IntegrityError:
+                sql = """UPDATE EMS.slotWiseCalculation SET c1Con = %s,c1Wheeled = %s,c1Wind = %s, c1WhlRem = %s, c1WindRem = %s,
+                        c2Con = %s,c2Wheeled = %s,c2Wind = %s, c2WhlRem = %s, c2WindRem = %s,
+                        c4Con = %s,c4Wheeled = %s,c4Wind = %s, c4WhlRem = %s, c4WindRem = %s,
+                        c5Con = %s,c5Wheeled = %s,c5Wind = %s, c5WhlRem = %s, c5WindRem = %s WHERE polledDate = %s"""
+                
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("SlotWise updated")
+        data = {"message":"Slot Calculation Updated"}
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+@app.route('/slotWiseEnergy', methods = ['GET'])
+def slotWiseEnergy():
+    token = request.headers.get('Authorization')
+    print(token)
+
+    if token and check_authentication(token):
+        awsdb = mysql.connector.connect(
+           host="3.111.70.53",
+           user="emsroot",
+           password="22@teneT",
+           database='EMS',
+           port=3307
+        )
+        awscur = awsdb.cursor()
+
+        wdDict = {}
+        whDict = {}
+        
+
+        awscur.execute("SELECT Energy,polledTime FROM EMS.WheeledHourly where year(polledTime) = year(curdate()) and month(polledTime) = month(curdate());")
+
+        wh1Res = awscur.fetchall()
+
+        awscur.execute("SELECT Energy,polledTime FROM EMS.WheeledHourlyph2 where year(polledTime) = year(curdate()) and month(polledTime) = month(curdate())")
+
+        wh2Res = awscur.fetchall()
+
+        awscur.execute("""SELECT Energy,polledTime FROM EMS.windEnergyHourly where year(polledTime) = year(curdate()) and month(polledTime) = month(curdate());""")
+
+        wdRes = awscur.fetchall()
+
+        gdc5 = {}
+        gdc4 = {}
+        gdc1 = {}
+        gdc2 = {}
+        wd1 = {}
+        wd2 = {}
+        wd4 = {}
+        wd5 = {}
+        whc5 = {}
+        whc4 = {}
+        whc2 = {}
+        whc1 = {}
+
+
+        def wheelDef(Energy,polledTime):
+            if Energy != None:
+                hr = int(str(polledTime)[11:13])
+                polledDate = str(polledTime)[0:10]
+                if hr < 5 or hr >= 22:
+                    if Energy >= 0:
+                        if polledDate in whc5.keys():
+                            whc5[polledDate]+=Energy
+                        else:
+                            whc5[polledDate] = Energy
+                
+                if hr == 5 or (hr >= 10 and hr < 18):
+                    if Energy >= 0:
+                        if polledDate in whc4.keys():
+                            whc4[polledDate] += Energy
+                        else:
+                            whc4[polledDate] = Energy
+                
+                if hr >= 6 and hr < 10:
+                    if Energy >= 0:
+                        if polledDate in whc1.keys():
+                            whc1[polledDate]+= Energy
+                        else:
+                            whc1[polledDate] = Energy
+
+                if hr >= 18 and hr < 22:
+                    if Energy >= 0:
+                        if polledDate in whc2.keys():
+                            whc2[polledDate]+= Energy
+                        else:
+                            whc2[polledDate] = Energy
+
+        def windDef(Energy,polledTime):
+            if Energy != None:
+                hr = int(str(polledTime)[11:13])
+                polledDate = str(polledTime)[0:10]
+                if hr < 5 or hr >= 22:
+                    if polledDate in wd5.keys():
+                        wd5[polledDate] += Energy
+                    else:
+                        wd5[polledDate] = Energy
+                
+                if hr == 5 or (hr >= 10 and hr < 18):
+                    if polledDate in wd4.keys():
+                        wd4[polledDate] += Energy
+                    else:
+                        wd4[polledDate] = Energy
+                
+                if hr >= 6 and hr < 10:
+                    if polledDate in wd1.keys():
+                        wd1[polledDate] += Energy
+                    else:
+                        wd1[polledDate] = Energy
+
+                if hr >= 18 and hr < 22:
+                    if polledDate in wd2.keys():
+                        wd2[polledDate] += Energy 
+                    else:
+                        wd2[polledDate] = Energy
+
+        for i in wh1Res:
+            wheelDef(i[0],i[1])
+        
+        for i in wh2Res:
+            wheelDef(i[0],i[1])
+
+        for i in wdRes:
+            windDef(i[0],i[1])
+
+        for i in wd1.keys():
+            val = (wd1[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c1windEnergy,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C1 wind energy inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c1windEnergy = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C1 wind energy updated")
+
+        for i in wd2.keys():
+            val = (wd2[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c2windEnergy,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C2 wind energy inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c2windEnergy = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C2 wind energy updated")
+        
+        for i in wd4.keys():
+            val = (wd4[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c4windEnergy,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C4 wind energy inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c4windEnergy = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C4 wind energy updated")
+
+        for i in wd5.keys():
+            val = (wd5[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c5windEnergy,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C5 wind energy inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c5windEnergy = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C5 wind energy updated")
+        
+
+        for i in gdc1.keys():
+            val = (gdc1[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c1totalConsumption,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C1 total consumption inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c1totalConsumption = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C1 total consumption updated")
+
+        for i in gdc2.keys():
+            val = (gdc2[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c2totalConsumption,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C2 total consumption inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c2totalConsumption = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C2 total consumption updated")
+        
+        for i in gdc4.keys():
+            val = (gdc4[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c4totalConsumption,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C4 total consumption inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c4totalConsumption = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C4 total consumption updated")
+        
+        for i in gdc5.keys():
+            val = (gdc5[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c5totalConsumption,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C5 total consumption inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c5totalConsumption = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C5 total consumption updated")
+
+        for i in whc1.keys():
+            val = (whc1[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c1wheeledEnergy,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C1 wheeled energy inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c1wheeledEnergy = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C1 wheeled energy updated")
+            
+        for i in whc2.keys():
+            val = (whc2[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c2wheeledEnergy,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C2 wheeled energy inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c2wheeledEnergy = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C2 wheeled energy updated")
+
+        for i in whc4.keys():
+            val = (whc4[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c4wheeledEnergy,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C4 wheeled energy inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c4wheeledEnergy = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C4 wheeled energy updated")
+
+        for i in whc5.keys():
+            val = (whc5[i],i)
+            sql = "INSERT INTO EMS.SlotWiseEnergy(c5wheeledEnergy,polledDate) VALUES(%s,%s)"
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C5 wheeled energy inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c5wheeledEnergy = %s WHERE polledDate = %s"
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("C5 wheeled energy updated")
+
+        c1 = {}
+        c2 = {}
+        c4 = {}
+        c5 = {}
+
+        query = """
+                SELECT polledTime,grid33KvA FROM EMS.buildingConsumption where 
+                year(polledTime) = 2024 and month(polledTime) = 10
+                order by polledTime
+            """
+        awscur.execute(query)
+        result = awscur.fetchall()
+
+
+        def slotwise(polledTime, energy_diff):
+            hr = int(str(polledTime)[11:13])
+            polledDate = str(polledTime)[0:10]
+        
+            if  hr >= 6 and hr < 10:
+                if polledDate in c1.keys():
+                    c1[polledDate].append(energy_diff)
+                else:
+                    c1[polledDate] = [energy_diff]
+
+            elif hr >= 18 and hr < 22:
+                if polledDate in c2.keys():
+                    c2[polledDate].append(energy_diff)
+                else:
+                    c2[polledDate] = [energy_diff]
+        
+            elif (hr >= 5 and hr < 6) or (hr >= 10 and hr < 18):
+                if polledDate in c4.keys():
+                    c4[polledDate].append(energy_diff)
+                else:
+                    c4[polledDate] = [energy_diff]
+
+            elif (hr >= 0 and hr <5) or (hr >= 22 and hr < 24):
+                if polledDate in c5.keys():
+                    c5[polledDate].append(energy_diff)
+                else:
+                    c5[polledDate] = [energy_diff]
+                
+
+        for i in result:
+            slotwise(i[0],i[1])
+
+        for polledDate in c1.keys():
+                
+            c1_total_energy_sum = sum(c1[polledDate]) if polledDate in c1 else 0
+            c2_total_energy_sum = sum(c2[polledDate]) if polledDate in c2 else 0
+            c4_total_energy_sum = sum(c4[polledDate]) if polledDate in c4 else 0
+            c5_total_energy_sum = sum(c5[polledDate]) if polledDate in c5 else 0
+
+            print("Date:",polledDate)
+            print(f"Total Summed Energy Difference for C1: {c1_total_energy_sum}")
+            print(f"Total Summed Energy Difference for C2 : {c2_total_energy_sum}")
+            print(f"Total Summed Energy Difference for C4 : {c4_total_energy_sum}")
+            print(f"Total Summed Energy Difference for C5 : {c5_total_energy_sum}")
+
+    
+            sql = "INSERT INTO EMS.SlotWiseEnergy(polledDate,c1totalConsumption,c2totalConsumption,c4totalConsumption,c5totalConsumption) VALUES(%s,%s,%s,%s,%s)"
+            val = (polledDate, c1_total_energy_sum, c2_total_energy_sum, c4_total_energy_sum, c5_total_energy_sum)
+            try:
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("slotwise energy inserted")
+            except mysql.connector.IntegrityError:
+                sql = "UPDATE EMS.SlotWiseEnergy SET c1totalConsumption = %s,c2totalConsumption = %s,c4totalConsumption = %s,c5totalConsumption = %s WHERE polledDate = %s"
+                val = (c1_total_energy_sum, c2_total_energy_sum, c4_total_energy_sum, c5_total_energy_sum,polledDate)
+                print(val)
+                awscur.execute(sql,val)
+                awsdb.commit()
+                print("slotwise energy updated")
+        data = {"message":"Slot Wise Energy Updated"}
+        awscur.close()
+        return jsonify(data), 200
+    else:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+
 @app.route('/gridDaywiseprev', methods = ['GET'])
 def gridDaywiseprev():
     token = request.headers.get('Authorization')

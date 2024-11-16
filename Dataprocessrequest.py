@@ -4,6 +4,12 @@ import time
 
 headers = {'Authorization': 'VKOnNhH2SebMU6S'}
 
+windmurl = 'http://localhost:8000/windMonth'
+winddurl = 'http://localhost:8000/windDayWise'
+ltoenurl = 'http://localhost:8000/ltoEnergy'
+ioeenurl = 'http://localhost:8000/ioeEnergy'
+sltenurl = 'http://localhost:8000/slotWiseEnergy'
+sltclurl = 'http://localhost:8000/slotWiseCalculation'
 gddurlp = 'http://localhost:8000/gridDaywiseprev'
 gddurl = 'http://localhost:8000/gridDaywise'
 kvaurl = 'http://localhost:8000/kvavskwh'
@@ -44,6 +50,42 @@ demand = 'http://localhost:8000/demandvsgrid'
 ltourl = 'http://localhost:8000/ltohourly'
 dgurl = 'http://localhost:8000/dghourly'
 dgqurl = 'http://localhost:8000/dgquarterly'
+
+def windmhr():
+    print("Wind Month Wise Energy")
+    upsres = requests.get(windmurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def winddhr():
+    print("Wind Day Wise Energy")
+    upsres = requests.get(winddurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def ltoenhr():
+    print("LTO Energy")
+    upsres = requests.get(ltoenurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def ioeenhr():
+    print("IOE Energy")
+    upsres = requests.get(ioeenurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def stclhr():
+    print("Slot Wise Calculation")
+    upsres = requests.get(sltclurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
+
+def stenhr():
+    print("Slot Wise Energy")
+    upsres = requests.get(sltenurl, headers=headers)
+    print(upsres.json())
+    time.sleep(10)
 
 def gddphr():
     print("Grid Day Wise")
@@ -286,7 +328,7 @@ def demand():
     time.sleep(10)
 
 
-function_names = ['wheel','wheel2']
+function_names = ['windmhr','ltoenhr','wheel','wheel2']
 
 # 'winmhr','ltohr','grid','winhr','ioehr','wheel2','invhr2','wheel','maxpjf','invhr','tstemp','elecdy','griddaily','dgqtr','dghr','upshr','thermal','roof','dghour','thermalq','bms','peak','peakq','power','thermalstatus','roofd','peakd'
 
